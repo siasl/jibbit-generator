@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jibbitz Generator</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Jibbitz 3D Generator</h1>
+      <p>Upload an image, keep original colors if there are 4 or fewer, or reduce/customize to 4 colors.</p>
+    </header>
+
+    <main>
+      <section class="panel controls">
+        <div class="field">
+          <label for="imageInput">Image</label>
+          <input id="imageInput" type="file" accept="image/*" />
+        </div>
+
+        <div class="row">
+          <div class="field compact">
+            <label for="targetColors">Target Colors</label>
+            <input id="targetColors" type="number" min="2" max="4" value="4" />
+          </div>
+          <div class="field compact">
+            <label for="resolution">Grid Resolution</label>
+            <input id="resolution" type="number" min="32" max="256" step="8" value="112" />
+          </div>
+          <div class="field compact">
+            <label for="baseThickness">Base mm</label>
+            <input id="baseThickness" type="number" min="0.8" max="6" step="0.1" value="1.8" />
+          </div>
+          <div class="field compact">
+            <label for="colorThickness">Color mm</label>
+            <input id="colorThickness" type="number" min="0.2" max="3" step="0.1" value="0.8" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="field compact">
+            <label for="targetSizeMm">Target Width mm</label>
+            <input id="targetSizeMm" type="number" min="12" max="60" step="1" value="30" />
+          </div>
+          <div class="field compact">
+            <label for="nozzleMm">Nozzle mm</label>
+            <input id="nozzleMm" type="number" min="0.2" max="1.2" step="0.05" value="0.4" />
+          </div>
+          <div class="field compact">
+            <label for="stemColor">Stem Color</label>
+            <input id="stemColor" type="color" value="#e7edf5" />
+          </div>
+        </div>
+        <div id="resolutionHelp" class="hint"></div>
+        <button id="useRecommendedBtn" type="button">Use Recommended Resolution</button>
+
+        <div id="status" class="status">Upload an image to start.</div>
+
+        <div class="actions">
+          <button id="detectBtn" disabled>Detect Colors</button>
+          <button id="quantizeBtn" disabled>Reduce to Target Colors</button>
+          <button id="generateBtn" disabled>Generate 3D Model</button>
+        </div>
+
+        <div>
+          <h3>Palette</h3>
+          <div id="palette" class="palette"></div>
+          <button id="applyPaletteBtn" disabled>Apply Palette Changes</button>
+        </div>
+
+        <div>
+          <h3>Export</h3>
+          <div class="actions">
+            <button id="downloadCombinedBtn" disabled>Download Combined STL</button>
+          </div>
+          <div id="layerExports" class="layer-exports"></div>
+        </div>
+      </section>
+
+      <section class="panel preview">
+        <div class="canvas-wrap">
+          <h3>Original</h3>
+          <canvas id="originalCanvas" width="320" height="320"></canvas>
+        </div>
+        <div class="canvas-wrap">
+          <h3>Processed (color regions)</h3>
+          <canvas id="processedCanvas" width="320" height="320"></canvas>
+        </div>
+        <div class="viewer-wrap">
+          <h3>3D Preview</h3>
+          <div id="viewer"></div>
+        </div>
+      </section>
+    </main>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.161.0/build/three.module.js"
+        }
+      }
+    </script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
