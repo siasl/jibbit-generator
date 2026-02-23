@@ -3,6 +3,11 @@ import { OrbitControls } from "https://unpkg.com/three@0.161.0/examples/jsm/cont
 import { STLExporter } from "https://unpkg.com/three@0.161.0/examples/jsm/exporters/STLExporter.js";
 import { mergeGeometries } from "https://unpkg.com/three@0.161.0/examples/jsm/utils/BufferGeometryUtils.js";
 
+if (window.location.hostname === "[::]") {
+  const safeHostUrl = `${window.location.protocol}//localhost:${window.location.port}${window.location.pathname}${window.location.search}${window.location.hash}`;
+  window.location.replace(safeHostUrl);
+}
+
 const imageInput = document.getElementById("imageInput");
 const detectBtn = document.getElementById("detectBtn");
 const quantizeBtn = document.getElementById("quantizeBtn");
@@ -19,9 +24,13 @@ const baseThicknessInput = document.getElementById("baseThickness");
 const colorThicknessInput = document.getElementById("colorThickness");
 const targetSizeMmInput = document.getElementById("targetSizeMm");
 const nozzleMmInput = document.getElementById("nozzleMm");
-const stemColorInput = document.getElementById("stemColor");
+const stemPaletteIndexSelect = document.getElementById("stemPaletteIndex");
+const stemColorPreview = document.getElementById("stemColorPreview");
 const resolutionHelpEl = document.getElementById("resolutionHelp");
-const useRecommendedBtn = document.getElementById("useRecommendedBtn");
+const baseThicknessInchesEl = document.getElementById("baseThicknessInches");
+const colorThicknessInchesEl = document.getElementById("colorThicknessInches");
+const targetSizeInchesEl = document.getElementById("targetSizeInches");
+const nozzleInchesEl = document.getElementById("nozzleInches");
 
 const originalCanvas = document.getElementById("originalCanvas");
 const processedCanvas = document.getElementById("processedCanvas");
@@ -96,6 +105,11 @@ function roundToStep(v, step = 8) {
   return Math.max(step, Math.round(v / step) * step);
 }
 
+function mmToInText(mm) {
+  const inches = mm / 25.4;
+  return `${mm.toFixed(2)} mm = ${inches.toFixed(3)} in`;
+}
+
 function toHex([r, g, b]) {
   return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
@@ -126,11 +140,63 @@ function getResolutionRecommendation() {
 }
 
 function updateResolutionGuidance() {
-  const { targetMm, nozzleMm, recommended, current, pixelMm } = getResolutionRecommendation();
+  const { targetMm, nozzleMm, recommended } = getResolutionRecommendation();
+  resolutionInput.value = String(recommended);
+  const pixelMm = targetMm / recommended;
   const relation = pixelMm < nozzleMm ? "finer than your nozzle" : "printable for your nozzle";
   resolutionHelpEl.textContent =
     `Current grid cell: ${pixelMm.toFixed(2)} mm. With nozzle ${nozzleMm.toFixed(2)} mm and target ${targetMm.toFixed(0)} mm, ` +
-    `recommended resolution is about ${recommended}. (${current} is ${relation})`;
+    `recommended resolution is ${recommended}. (${recommended} is ${relation})`;
+}
+
+function updateUnitHints() {
+  const baseMm = clamp(parseFloat(baseThicknessInput.value) || 1.8, 0.8, 6);
+  const colorMm = clamp(parseFloat(colorThicknessInput.value) || 0.8, 0.2, 3);
+  const targetMm = clamp(parseFloat(targetSizeMmInput.value) || 30, 12, 60);
+  const nozzleMm = clamp(parseFloat(nozzleMmInput.value) || 0.4, 0.2, 1.2);
+  baseThicknessInchesEl.textContent = mmToInText(baseMm);
+  colorThicknessInchesEl.textContent = mmToInText(colorMm);
+  targetSizeInchesEl.textContent = mmToInText(targetMm);
+  nozzleInchesEl.textContent = mmToInText(nozzleMm);
+}
+
+function updateStemPreview(hex) {
+  stemColorPreview.style.backgroundColor = hex;
+}
+
+function getStemHexFromSelection() {
+  if (!currentPalette.length) return "#E7EDF5";
+  const idx = clamp(parseInt(stemPaletteIndexSelect.value || "0", 10), 0, currentPalette.length - 1);
+  const rgb = currentPalette[idx] || currentPalette[0];
+  return toHex(rgb).toUpperCase();
+}
+
+function setStemOptionLabel(idx, hex) {
+  const opt = stemPaletteIndexSelect.options[idx];
+  if (!opt) return;
+  opt.textContent = `C${idx + 1} ${hex}`;
+}
+
+function syncStemSelectionOptions(palette) {
+  const prev = clamp(parseInt(stemPaletteIndexSelect.value || "0", 10), 0, Math.max(0, palette.length - 1));
+  stemPaletteIndexSelect.innerHTML = "";
+  if (!palette.length) {
+    stemPaletteIndexSelect.disabled = true;
+    updateStemPreview("#E7EDF5");
+    return;
+  }
+
+  palette.forEach((rgb, idx) => {
+    const hex = toHex(rgb).toUpperCase();
+    const option = document.createElement("option");
+    option.value = String(idx);
+    option.textContent = `C${idx + 1} ${hex}`;
+    stemPaletteIndexSelect.appendChild(option);
+  });
+
+  stemPaletteIndexSelect.value = String(Math.min(prev, palette.length - 1));
+  stemPaletteIndexSelect.disabled = false;
+  updateStemPreview(getStemHexFromSelection());
 }
 
 function drawImageScaled(img) {
@@ -335,6 +401,10 @@ function renderPalette(palette) {
     input.addEventListener("input", () => {
       preview.style.backgroundColor = input.value;
       hexLabel.textContent = input.value.toUpperCase();
+      setStemOptionLabel(idx, input.value.toUpperCase());
+      if (parseInt(stemPaletteIndexSelect.value || "0", 10) === idx) {
+        updateStemPreview(input.value.toUpperCase());
+      }
     });
 
     pickerWrap.append(preview, input);
@@ -343,6 +413,7 @@ function renderPalette(palette) {
     paletteEl.appendChild(holder);
   });
   applyPaletteBtn.disabled = palette.length === 0;
+  syncStemSelectionOptions(palette);
 }
 
 function rebuildUsingPaletteInputs() {
@@ -352,6 +423,7 @@ function rebuildUsingPaletteInputs() {
   currentPalette = palette;
   reduced = buildIndexedFromPalette(imageData, palette);
   drawProcessed(reduced, state.width, state.height);
+  syncStemSelectionOptions(palette);
 }
 
 function gridFromMask(mask, width, height, fn) {
@@ -447,6 +519,9 @@ function generateModel() {
     setStatus("No processed image data available.", true);
     return;
   }
+  if (paletteEl.querySelector("input[type='color']")) {
+    rebuildUsingPaletteInputs();
+  }
 
   if (modelGroup) {
     scene.remove(modelGroup);
@@ -458,7 +533,7 @@ function generateModel() {
   const baseThickness = clamp(parseFloat(baseThicknessInput.value) || 1.8, 0.8, 6);
   const colorThickness = clamp(parseFloat(colorThicknessInput.value) || 0.8, 0.2, 3);
   const targetMm = clamp(parseFloat(targetSizeMmInput.value) || 30, 12, 60);
-  const stemHex = stemColorInput.value || "#e7edf5";
+  const stemHex = getStemHexFromSelection();
 
   const longest = Math.max(width, height);
   const pxSize = targetMm / longest;
@@ -521,12 +596,13 @@ function generateModel() {
 function downloadText(name, text) {
   const blob = new Blob([text], { type: "model/stl" });
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(blob);
+  a.href = url;
   a.download = name;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 function exportSTL(object3d, filename) {
@@ -569,6 +645,7 @@ imageInput.addEventListener("change", async (e) => {
     generateBtn.disabled = true;
     downloadCombinedBtn.disabled = true;
     applyPaletteBtn.disabled = true;
+    stemPaletteIndexSelect.disabled = true;
     layerExports.innerHTML = "";
 
     if (modelGroup) {
@@ -632,18 +709,24 @@ applyPaletteBtn.addEventListener("click", () => {
   setStatus("Palette changes applied to the image regions.");
 });
 
-useRecommendedBtn.addEventListener("click", () => {
-  const { recommended } = getResolutionRecommendation();
-  resolutionInput.value = String(recommended);
-  updateResolutionGuidance();
-  setStatus(`Grid resolution set to recommended value: ${recommended}.`);
+stemPaletteIndexSelect.addEventListener("change", () => {
+  updateStemPreview(getStemHexFromSelection());
 });
 
-[resolutionInput, targetSizeMmInput, nozzleMmInput].forEach((input) => {
-  input.addEventListener("input", updateResolutionGuidance);
+targetSizeMmInput.addEventListener("input", () => {
+  updateResolutionGuidance();
+  updateUnitHints();
 });
+nozzleMmInput.addEventListener("input", () => {
+  updateResolutionGuidance();
+  updateUnitHints();
+});
+baseThicknessInput.addEventListener("input", updateUnitHints);
+colorThicknessInput.addEventListener("input", updateUnitHints);
+resolutionInput.addEventListener("input", updateResolutionGuidance);
 
 updateResolutionGuidance();
+updateUnitHints();
 
 generateBtn.addEventListener("click", generateModel);
 
