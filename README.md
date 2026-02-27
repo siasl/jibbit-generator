@@ -21,7 +21,7 @@ A browser app that turns an uploaded image into a 3D printable Jibbitz model wit
 Because the app uses JavaScript modules, serve it from a local web server:
 
 ```bash
-cd "/Users/silashowe/Jibbitz Generator"
+cd "/path/to/Jibbitz Generator"
 python3 -m http.server 8000
 ```
 
