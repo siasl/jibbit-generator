@@ -18,6 +18,7 @@ const applyPaletteBtn = document.getElementById("applyPaletteBtn");
 const downloadCombinedBtn = document.getElementById("downloadCombinedBtn");
 const download3mfBtn = document.getElementById("download3mfBtn");
 const downloadStemBtn = document.getElementById("downloadStemBtn");
+const exportFileNameInput = document.getElementById("exportFileName");
 const layerExports = document.getElementById("layerExports");
 const paletteEl = document.getElementById("palette");
 const statusEl = document.getElementById("status");
@@ -30,11 +31,14 @@ const targetSizeMmInput = document.getElementById("targetSizeMm");
 const nozzleMmInput = document.getElementById("nozzleMm");
 const stemPaletteIndexSelect = document.getElementById("stemPaletteIndex");
 const stemColorPreview = document.getElementById("stemColorPreview");
+const baseColorInput = document.getElementById("baseColor");
 const geometryModeSelect = document.getElementById("geometryMode");
 const baseShapeModeSelect = document.getElementById("baseShapeMode");
 const baseShapePaddingInput = document.getElementById("baseShapePadding");
 const baseShapePaddingValueEl = document.getElementById("baseShapePaddingValue");
 const showBaseOverlayInput = document.getElementById("showBaseOverlay");
+const showAdvancedOptionsInput = document.getElementById("showAdvancedOptions");
+const advancedOptionsEl = document.getElementById("advancedOptions");
 const cleanupIslandsInput = document.getElementById("cleanupIslands");
 const cleanupMinSizeInput = document.getElementById("cleanupMinSize");
 const cleanupMinSizeValueEl = document.getElementById("cleanupMinSizeValue");
@@ -110,6 +114,11 @@ function setStatus(message, isError = false) {
   statusEl.style.color = isError ? "#8a1f2f" : "#264577";
 }
 
+function setAdvancedOptionsVisibility(show) {
+  if (!advancedOptionsEl) return;
+  advancedOptionsEl.hidden = !show;
+}
+
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -139,6 +148,12 @@ function tintHex(hex, factor) {
     clamp(Math.round(g * factor), 0, 255),
     clamp(Math.round(b * factor), 0, 255),
   ]);
+}
+
+function getBaseShapePaddingPx() {
+  const raw = parseInt(baseShapePaddingInput.value, 10);
+  const safe = Number.isFinite(raw) ? raw : 4;
+  return clamp(safe, 0, 24);
 }
 
 function toTitleCase(text) {
@@ -220,6 +235,22 @@ function sanitizePartName(name) {
   return slug || "color";
 }
 
+function deriveExportBaseNameFromImage(fileName) {
+  const raw = String(fileName || "").trim();
+  const noExt = raw.replace(/\.[^/.]+$/, "");
+  const normalized = noExt
+    .replace(/[_\s]+/g, "-")
+    .replace(/[^a-zA-Z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "jibbitz-model";
+}
+
+function getExportBaseName() {
+  const raw = String(exportFileNameInput?.value || "").trim();
+  return deriveExportBaseNameFromImage(raw);
+}
+
 function getResolutionRecommendation() {
   const targetMm = clamp(parseFloat(targetSizeMmInput.value) || 30, 12, 60);
   const nozzleMm = clamp(parseFloat(nozzleMmInput.value) || 0.4, 0.2, 1.2);
@@ -227,18 +258,18 @@ function getResolutionRecommendation() {
   const rawRecommended = (targetMm / nozzleMm) * 2;
   const recommended = clamp(roundToStep(rawRecommended, 8), 32, 256);
   const current = clamp(parseInt(resolutionInput.value, 10) || 112, 32, 256);
-  const pixelMm = targetMm / current;
-  return { targetMm, nozzleMm, recommended, current, pixelMm };
+  const currentCellMm = targetMm / current;
+  const recommendedCellMm = targetMm / recommended;
+  return { targetMm, nozzleMm, recommended, current, currentCellMm, recommendedCellMm };
 }
 
 function updateResolutionGuidance() {
-  const { targetMm, nozzleMm, recommended } = getResolutionRecommendation();
-  resolutionInput.value = String(recommended);
-  const pixelMm = targetMm / recommended;
-  const relation = pixelMm < nozzleMm ? "finer than your nozzle" : "printable for your nozzle";
+  const { targetMm, nozzleMm, recommended, current, currentCellMm, recommendedCellMm } = getResolutionRecommendation();
+  const relationCurrent = currentCellMm < nozzleMm ? "finer than your nozzle" : "coarser than your nozzle";
   resolutionHelpEl.textContent =
-    `Current grid cell: ${pixelMm.toFixed(2)} mm. With nozzle ${nozzleMm.toFixed(2)} mm and target ${targetMm.toFixed(0)} mm, ` +
-    `recommended resolution is ${recommended}. (${recommended} is ${relation})`;
+    `Current grid cell: ${currentCellMm.toFixed(2)} mm. With nozzle ${nozzleMm.toFixed(2)} mm and target ${targetMm.toFixed(0)} mm, ` +
+    `recommended resolution is ${recommended} (${recommendedCellMm.toFixed(2)} mm cell). ` +
+    `Current ${current} is ${relationCurrent}.`;
 }
 
 function updateUnitHints() {
@@ -257,14 +288,21 @@ function updateStemPreview(hex) {
 }
 
 function getStemHexFromSelection() {
-  if (!currentPalette.length) return "#E7EDF5";
-  const idx = clamp(parseInt(stemPaletteIndexSelect.value || "0", 10), 0, currentPalette.length - 1);
+  const selected = String(stemPaletteIndexSelect.value || "__base__");
+  if (selected === "__base__") return getBaseHexFromInput();
+  if (!currentPalette.length) return getBaseHexFromInput();
+  const idx = clamp(parseInt(selected.replace(/^c/, ""), 10) || 0, 0, currentPalette.length - 1);
   const rgb = currentPalette[idx] || currentPalette[0];
   return toHex(rgb).toUpperCase();
 }
 
+function getBaseHexFromInput() {
+  const v = String(baseColorInput?.value || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(v) ? v.toUpperCase() : "#F3F6FA";
+}
+
 function setStemOptionLabel(idx, hex, colorLabel = "") {
-  const opt = stemPaletteIndexSelect.options[idx];
+  const opt = stemPaletteIndexSelect.querySelector(`option[value="c${idx}"]`);
   if (!opt) return;
   const displayName = colorLabel ? toTitleCase(colorLabel) : `Color ${idx + 1}`;
   opt.textContent = `${displayName} ${hex}`;
@@ -272,23 +310,24 @@ function setStemOptionLabel(idx, hex, colorLabel = "") {
 
 function syncStemSelectionOptions(palette) {
   const labels = buildUniqueColorLabels(palette);
-  const prev = clamp(parseInt(stemPaletteIndexSelect.value || "0", 10), 0, Math.max(0, palette.length - 1));
+  const prev = String(stemPaletteIndexSelect.value || "__base__");
   stemPaletteIndexSelect.innerHTML = "";
-  if (!palette.length) {
-    stemPaletteIndexSelect.disabled = true;
-    updateStemPreview("#E7EDF5");
-    return;
-  }
+
+  const baseOption = document.createElement("option");
+  baseOption.value = "__base__";
+  baseOption.textContent = `Backing Color ${getBaseHexFromInput()}`;
+  stemPaletteIndexSelect.appendChild(baseOption);
 
   palette.forEach((rgb, idx) => {
     const hex = toHex(rgb).toUpperCase();
     const option = document.createElement("option");
-    option.value = String(idx);
+    option.value = `c${idx}`;
     option.textContent = `${toTitleCase(labels[idx])} ${hex}`;
     stemPaletteIndexSelect.appendChild(option);
   });
 
-  stemPaletteIndexSelect.value = String(Math.min(prev, palette.length - 1));
+  const prevExists = [...stemPaletteIndexSelect.options].some((o) => o.value === prev);
+  stemPaletteIndexSelect.value = prevExists ? prev : "__base__";
   stemPaletteIndexSelect.disabled = false;
   updateStemPreview(getStemHexFromSelection());
 }
@@ -305,17 +344,20 @@ function drawImageScaled(img) {
 
 function getWorkingPixels(maxDim) {
   const img = sourceImage;
-  const scale = Math.min(maxDim / img.width, maxDim / img.height, 1);
+  // Reserve transparent margins so backing padding can expand in all directions.
+  const margin = clamp(Math.round(maxDim * 0.08), 6, 24);
+  const innerMax = Math.max(8, maxDim - margin * 2);
+  const scale = Math.min(innerMax / img.width, innerMax / img.height, 1);
   const w = Math.max(8, Math.round(img.width * scale));
   const h = Math.max(8, Math.round(img.height * scale));
   const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
+  c.width = w + margin * 2;
+  c.height = h + margin * 2;
   const ctx = c.getContext("2d", { willReadFrequently: true });
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(img, 0, 0, w, h);
-  const data = ctx.getImageData(0, 0, w, h);
-  return { data, width: w, height: h };
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.drawImage(img, margin, margin, w, h);
+  return { data: ctx.getImageData(0, 0, c.width, c.height), width: c.width, height: c.height };
 }
 
 function nearestColorIndex(rgb, palette) {
@@ -512,11 +554,89 @@ function dilateMask(mask, width, height, radius) {
   return out;
 }
 
+function erodeMask(mask, width, height, radius) {
+  if (radius <= 0) return Uint8Array.from(mask);
+  const out = new Uint8Array(mask.length);
+  const offsets = [];
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      if (dx * dx + dy * dy <= radius * radius) offsets.push([dx, dy]);
+    }
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let keep = 1;
+      for (const [dx, dy] of offsets) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height || !mask[ny * width + nx]) {
+          keep = 0;
+          break;
+        }
+      }
+      out[y * width + x] = keep;
+    }
+  }
+  return out;
+}
+
+function closeMask(mask, width, height, radius) {
+  if (radius <= 0) return Uint8Array.from(mask);
+  const dilated = dilateMask(mask, width, height, radius);
+  const closed = erodeMask(dilated, width, height, radius);
+  return closed;
+}
+
+function fillMaskHoles(mask, width, height) {
+  const out = Uint8Array.from(mask);
+  const seen = new Uint8Array(mask.length);
+  const queue = [];
+  const pushIfEmpty = (x, y) => {
+    const i = y * width + x;
+    if (seen[i] || out[i]) return;
+    seen[i] = 1;
+    queue.push(i);
+  };
+
+  for (let x = 0; x < width; x++) {
+    pushIfEmpty(x, 0);
+    pushIfEmpty(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y++) {
+    pushIfEmpty(0, y);
+    pushIfEmpty(width - 1, y);
+  }
+
+  while (queue.length) {
+    const i = queue.pop();
+    const x = i % width;
+    const y = Math.floor(i / width);
+    if (x > 0) pushIfEmpty(x - 1, y);
+    if (x < width - 1) pushIfEmpty(x + 1, y);
+    if (y > 0) pushIfEmpty(x, y - 1);
+    if (y < height - 1) pushIfEmpty(x, y + 1);
+  }
+
+  for (let i = 0; i < out.length; i++) {
+    if (!out[i] && !seen[i]) out[i] = 1;
+  }
+  return out;
+}
+
 function buildBaseMask(alphaMask, width, height, shapeMode, paddingPx) {
-  if (shapeMode === "none") return Uint8Array.from(alphaMask);
+  if (shapeMode === "nobacking") return new Uint8Array(alphaMask.length);
   const source = Uint8Array.from(alphaMask);
+  if (shapeMode === "none") {
+    // Legacy mode now still honors padding so the slider always has effect.
+    const padded = dilateMask(source, width, height, paddingPx);
+    const closed = closeMask(padded, width, height, 1);
+    return fillMaskHoles(closed, width, height);
+  }
   if (shapeMode === "contour") {
-    return dilateMask(source, width, height, paddingPx);
+    const padded = dilateMask(source, width, height, paddingPx);
+    const closed = closeMask(padded, width, height, 1);
+    return fillMaskHoles(closed, width, height);
   }
 
   const bounds = getMaskBounds(source, width, height);
@@ -551,6 +671,88 @@ function buildBaseMask(alphaMask, width, height, shapeMode, paddingPx) {
       if (dx * dx + dy * dy <= r2) out[y * width + x] = 1;
     }
   }
+  return out;
+}
+
+function buildContentMask(reducedData, width, height) {
+  const source = Uint8Array.from(reducedData.alphaMask);
+  let opaqueCount = 0;
+  for (let i = 0; i < source.length; i++) {
+    if (source[i]) opaqueCount += 1;
+  }
+  if (!opaqueCount || !reducedData.indexed) return source;
+
+  // If the image is mostly opaque, try removing border-connected background
+  // so backing shape and padding track the actual subject.
+  const fillRatio = opaqueCount / source.length;
+  if (fillRatio < 0.94) return source;
+
+  const borderCounts = new Map();
+  const addBorder = (x, y) => {
+    const idx = y * width + x;
+    if (!source[idx]) return;
+    const c = reducedData.indexed[idx];
+    if (c < 0) return;
+    borderCounts.set(c, (borderCounts.get(c) || 0) + 1);
+  };
+
+  for (let x = 0; x < width; x++) {
+    addBorder(x, 0);
+    addBorder(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y++) {
+    addBorder(0, y);
+    addBorder(width - 1, y);
+  }
+
+  let bgIdx = -1;
+  let bgCount = 0;
+  for (const [k, v] of borderCounts.entries()) {
+    if (v > bgCount) {
+      bgCount = v;
+      bgIdx = k;
+    }
+  }
+  if (bgIdx < 0) return source;
+
+  const out = Uint8Array.from(source);
+  const seen = new Uint8Array(source.length);
+  const queue = [];
+  const enqueueIfBg = (x, y) => {
+    const i = y * width + x;
+    if (seen[i] || !out[i]) return;
+    if (reducedData.indexed[i] !== bgIdx) return;
+    seen[i] = 1;
+    queue.push(i);
+  };
+
+  for (let x = 0; x < width; x++) {
+    enqueueIfBg(x, 0);
+    enqueueIfBg(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y++) {
+    enqueueIfBg(0, y);
+    enqueueIfBg(width - 1, y);
+  }
+
+  while (queue.length) {
+    const i = queue.pop();
+    out[i] = 0;
+    const x = i % width;
+    const y = Math.floor(i / width);
+    if (x > 0) enqueueIfBg(x - 1, y);
+    if (x < width - 1) enqueueIfBg(x + 1, y);
+    if (y > 0) enqueueIfBg(x, y - 1);
+    if (y < height - 1) enqueueIfBg(x, y + 1);
+  }
+
+  let kept = 0;
+  for (let i = 0; i < out.length; i++) {
+    if (out[i]) kept += 1;
+  }
+  // If heuristic removed too much, fall back to original alpha mask.
+  if (kept < Math.max(16, opaqueCount * 0.03)) return source;
+
   return out;
 }
 
@@ -609,8 +811,10 @@ function drawProcessed(reducedData, width, height) {
 
 function drawBaseOverlay(reducedData, width, height, x, y, w, h) {
   const shapeMode = baseShapeModeSelect.value || "contour";
-  const padding = clamp(parseInt(baseShapePaddingInput.value, 10) || 4, 0, 24);
-  const baseMask = buildBaseMask(reducedData.alphaMask, width, height, shapeMode, padding);
+  if (shapeMode === "nobacking") return;
+  const padding = getBaseShapePaddingPx();
+  const contentMask = buildContentMask(reducedData, width, height);
+  const baseMask = buildBaseMask(contentMask, width, height, shapeMode, padding);
   const overlay = pctx.createImageData(width, height);
   const out = overlay.data;
 
@@ -1126,9 +1330,11 @@ function generateModel() {
   const colorThickness = clamp(parseFloat(colorThicknessInput.value) || 0.8, 0.2, 3);
   const targetMm = clamp(parseFloat(targetSizeMmInput.value) || 30, 12, 60);
   const stemHex = getStemHexFromSelection();
+  const baseHex = getBaseHexFromInput();
   const geometryMode = geometryModeSelect.value || "contour";
   const baseShapeMode = baseShapeModeSelect.value || "contour";
-  const baseShapePadding = clamp(parseInt(baseShapePaddingInput.value, 10) || 4, 0, 24);
+  const baseShapePadding = getBaseShapePaddingPx();
+  const includeBacking = baseShapeMode !== "nobacking";
   const cleanupOn = cleanupIslandsInput.checked;
   const cleanupMinSize = clamp(parseInt(cleanupMinSizeInput.value, 10) || 8, 1, 40);
 
@@ -1138,23 +1344,27 @@ function generateModel() {
 
   const group = new THREE.Group();
 
-  const attachMask = buildBaseMask(reducedForModel.alphaMask, width, height, baseShapeMode, baseShapePadding);
-
-  const zBaseForColors = baseThickness;
+  let attachMask = null;
+  let zBaseForColors = 0;
   const layerColorLabels = buildUniqueColorLabels(reducedForModel.palette);
-  const baseGrid = gridFromMask(attachMask, width, height, (m, i) => m[i] === 1);
-  const baseGeo = buildLayerGeometry(baseGrid, width, height, pxSize, baseThickness, 0, geometryMode);
-  if (!baseGeo) {
-    setStatus("Could not build base geometry. Try lowering cleanup size or disabling island cleanup.", true);
-    return;
+  if (includeBacking) {
+    const contentMask = buildContentMask(reducedForModel, width, height);
+    attachMask = buildBaseMask(contentMask, width, height, baseShapeMode, baseShapePadding);
+    zBaseForColors = baseThickness;
+    const baseGrid = gridFromMask(attachMask, width, height, (m, i) => m[i] === 1);
+    const baseGeo = buildLayerGeometry(baseGrid, width, height, pxSize, baseThickness, 0, geometryMode);
+    if (!baseGeo) {
+      setStatus("Could not build base geometry. Try lowering cleanup size or disabling island cleanup.", true);
+      return;
+    }
+    const baseMesh = new THREE.Mesh(
+      baseGeo,
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(baseHex), roughness: 0.9, metalness: 0 })
+    );
+    baseMesh.name = "base";
+    group.add(baseMesh);
+    layerMeshes.push({ name: "base", mesh: baseMesh });
   }
-  const baseMesh = new THREE.Mesh(
-    baseGeo,
-    new THREE.MeshStandardMaterial({ color: 0xf3f6fa, roughness: 0.9, metalness: 0 })
-  );
-  baseMesh.name = "base";
-  group.add(baseMesh);
-  layerMeshes.push({ name: "base", mesh: baseMesh });
 
   for (let c = 0; c < reducedForModel.palette.length; c++) {
     const colorGrid = gridFromMask(reducedForModel.indexed, width, height, (idxData, i) => idxData[i] === c);
@@ -1176,16 +1386,18 @@ function generateModel() {
     layerMeshes.push({ name: toTitleCase(colorLabel), fileName: colorPartName, mesh });
   }
 
-  const attach = findStemAttachPoint(attachMask, width, height);
-  const halfW = (width * pxSize) / 2;
-  const halfH = (height * pxSize) / 2;
-  const stemX = (attach.x + 0.5) * pxSize - halfW;
-  const stemY = halfH - (attach.y + 0.5) * pxSize;
+  if (includeBacking && attachMask) {
+    const attach = findStemAttachPoint(attachMask, width, height);
+    const halfW = (width * pxSize) / 2;
+    const halfH = (height * pxSize) / 2;
+    const stemX = (attach.x + 0.5) * pxSize - halfW;
+    const stemY = halfH - (attach.y + 0.5) * pxSize;
 
-  const stem = makeStem(baseThickness, stemHex);
-  stem.name = "stem";
-  stem.position.set(stemX, stemY, 0);
-  group.add(stem);
+    const stem = makeStem(baseThickness, stemHex);
+    stem.name = "stem";
+    stem.position.set(stemX, stemY, 0);
+    group.add(stem);
+  }
 
   modelGroup = group;
   scene.add(group);
@@ -1203,7 +1415,7 @@ function generateModel() {
 
   downloadCombinedBtn.disabled = false;
   download3mfBtn.disabled = false;
-  downloadStemBtn.disabled = false;
+  downloadStemBtn.disabled = !includeBacking;
   renderLayerButtons();
   setStatus(
     `3D model generated. Approx size: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} mm. ` +
@@ -1475,7 +1687,8 @@ function renderLayerButtons() {
       const geo = buildCombinedGeometry(mesh, { includeStem: true, faceDown: true });
       if (!geo) return;
       const outMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial());
-      exportSTL(outMesh, `${fileName || sanitizePartName(name)}.stl`);
+      const base = getExportBaseName();
+      exportSTL(outMesh, `${base}-${fileName || sanitizePartName(name)}.stl`);
       outMesh.geometry.dispose();
     });
     layerExports.appendChild(btn);
@@ -1489,6 +1702,7 @@ function buildExportRoot() {
 imageInput.addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
+  if (exportFileNameInput) exportFileNameInput.value = deriveExportBaseNameFromImage(file.name);
 
   const url = URL.createObjectURL(file);
   const img = new Image();
@@ -1531,8 +1745,8 @@ detectBtn.addEventListener("click", () => {
   const detection = detectColors(imageData, state.width, state.height);
   const found = detection.colors.map((c) => [...c.rgb, c.count]);
   const needed = detection.neededColors.map((c) => [...c.rgb, c.count]);
-  const estimatedNeeded = estimateNeededColorCount(imageData, state.width, state.height, 2, 4);
-  const autoTarget = clamp(estimatedNeeded || needed.length || found.length || 2, 2, 4);
+  const estimatedNeeded = estimateNeededColorCount(imageData, state.width, state.height, 1, 4);
+  const autoTarget = needed.length <= 1 ? 1 : clamp(estimatedNeeded || needed.length || found.length || 1, 1, 4);
   targetColorsInput.value = String(autoTarget);
   const target = autoTarget;
 
@@ -1561,7 +1775,7 @@ quantizeBtn.addEventListener("click", () => {
     setStatus("Load and detect colors first.", true);
     return;
   }
-  const target = clamp(parseInt(targetColorsInput.value, 10) || 4, 2, 4);
+  const target = clamp(parseInt(targetColorsInput.value, 10) || 4, 1, 4);
   reduced = kmeansReduce(imageData, target, 18);
   currentPalette = reduced.palette.map((p) => p.slice());
   drawProcessed(reduced, state.width, state.height);
@@ -1578,6 +1792,25 @@ applyPaletteBtn.addEventListener("click", () => {
 stemPaletteIndexSelect.addEventListener("change", () => {
   updateStemPreview(getStemHexFromSelection());
 });
+baseColorInput.addEventListener("input", () => {
+  const baseHex = getBaseHexFromInput();
+  const baseOpt = stemPaletteIndexSelect.querySelector('option[value="__base__"]');
+  if (baseOpt) baseOpt.textContent = `Backing Color ${baseHex}`;
+  if (stemPaletteIndexSelect.value === "__base__") {
+    updateStemPreview(baseHex);
+  }
+  if (!modelGroup) return;
+  const base = modelGroup.getObjectByName("base");
+  if (base?.material?.color) {
+    base.material.color.set(baseHex);
+  }
+  if (stemPaletteIndexSelect.value === "__base__") {
+    const stemBody = modelGroup.getObjectByName("stem_body");
+    if (stemBody?.material?.color) {
+      stemBody.material.color.set(baseHex);
+    }
+  }
+});
 geometryModeSelect.addEventListener("change", () => {
   if (modelGroup) setStatus("Geometry mode changed. Click Generate 3D Model to rebuild before exporting.");
 });
@@ -1592,6 +1825,9 @@ baseShapePaddingInput.addEventListener("input", () => {
 });
 showBaseOverlayInput.addEventListener("change", () => {
   redrawProcessedPreview();
+});
+showAdvancedOptionsInput.addEventListener("change", () => {
+  setAdvancedOptionsVisibility(showAdvancedOptionsInput.checked);
 });
 cleanupIslandsInput.addEventListener("change", () => {
   cleanupMinSizeInput.disabled = !cleanupIslandsInput.checked;
@@ -1619,6 +1855,7 @@ updateUnitHints();
 cleanupMinSizeValueEl.textContent = `${cleanupMinSizeInput.value} px`;
 cleanupMinSizeInput.disabled = !cleanupIslandsInput.checked;
 baseShapePaddingValueEl.textContent = `${baseShapePaddingInput.value} px`;
+setAdvancedOptionsVisibility(showAdvancedOptionsInput.checked);
 
 generateBtn.addEventListener("click", generateModel);
 
@@ -1631,7 +1868,8 @@ downloadCombinedBtn.addEventListener("click", () => {
     return;
   }
   const mesh = new THREE.Mesh(combined, new THREE.MeshStandardMaterial());
-  exportSTL(mesh, "jibbitz-combined.stl");
+  const base = getExportBaseName();
+  exportSTL(mesh, `${base}.stl`);
   mesh.geometry.dispose();
   setStatus("Combined STL exported. Note: STL has no color metadata. For AMS multi-color, import base/named color/stem STLs as parts.");
 });
@@ -1640,7 +1878,8 @@ download3mfBtn.addEventListener("click", async () => {
   if (!modelGroup) return;
   try {
     const exportRoot = buildExportRoot();
-    await export3MF(exportRoot, "jibbitz-combined.3mf", { includeStem: true, faceDown: true });
+    const base = getExportBaseName();
+    await export3MF(exportRoot, `${base}.3mf`, { includeStem: true, faceDown: true });
     setStatus("Combined 3MF exported with color groups.");
   } catch (error) {
     console.error(error);
@@ -1661,7 +1900,8 @@ downloadStemBtn.addEventListener("click", () => {
     return;
   }
   const outMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial());
-  exportSTL(outMesh, "stem.stl");
+  const base = getExportBaseName();
+  exportSTL(outMesh, `${base}-stem.stl`);
   outMesh.geometry.dispose();
   setStatus("Stem STL exported.");
 });

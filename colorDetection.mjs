@@ -191,6 +191,8 @@ function kmeansErrorForK(pixels, k, iters = 10) {
 
 export function estimateNeededColorCount(imgData, width, height, minK = 2, maxK = 4) {
   const detection = detectColors(imgData, width, height);
+  if (detection.neededColors.length <= 1) return Math.max(1, Math.min(maxK, detection.neededColors.length || 1));
+
   const luminance = (rgb) => 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
   const shareOf = (c) => c.count / Math.max(1, detection.opaquePixels);
 

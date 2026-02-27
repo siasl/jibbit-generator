@@ -22,7 +22,7 @@
         <div class="row">
           <div class="field compact">
             <label for="targetColors">Target Colors</label>
-            <input id="targetColors" type="number" min="2" max="4" value="4" />
+            <input id="targetColors" type="number" min="1" max="4" value="4" />
           </div>
           <div class="field compact">
             <label for="resolution">Grid Resolution</label>
@@ -34,10 +34,18 @@
             <div id="baseThicknessInches" class="unit-hint"></div>
           </div>
           <div class="field compact">
+            <label for="baseColor">Backing Color</label>
+            <input id="baseColor" type="color" value="#F3F6FA" />
+          </div>
+          <div class="field compact">
             <label for="colorThickness">Color Height (mm)</label>
             <input id="colorThickness" type="number" min="0.2" max="3" step="0.1" value="0.8" />
             <div id="colorThicknessInches" class="unit-hint"></div>
           </div>
+        </div>
+        <div class="actions compact-actions color-actions-row">
+          <button id="detectBtn" disabled>Detect Colors</button>
+          <button id="quantizeBtn" disabled>Reduce Colors</button>
         </div>
         <div class="row">
           <div class="field compact">
@@ -60,29 +68,37 @@
         </div>
         <div class="row">
           <div class="field compact">
-            <label for="cleanupIslands">Small-Island Cleanup</label>
-            <input id="cleanupIslands" type="checkbox" checked />
+            <label for="showAdvancedOptions">Show Advanced Options</label>
+            <input id="showAdvancedOptions" type="checkbox" />
           </div>
-          <div class="field compact">
-            <label for="cleanupMinSize">Min Island Size (px)</label>
-            <input id="cleanupMinSize" type="range" min="1" max="40" step="1" value="8" />
-            <div id="cleanupMinSizeValue" class="unit-hint"></div>
+        </div>
+        <div id="advancedOptions" class="advanced-options" hidden>
+          <div class="row">
+            <div class="field compact">
+              <label for="cleanupIslands">Small-Island Cleanup</label>
+              <input id="cleanupIslands" type="checkbox" checked />
+            </div>
+            <div class="field compact">
+              <label for="cleanupMinSize">Min Island Size (px)</label>
+              <input id="cleanupMinSize" type="range" min="1" max="40" step="1" value="8" />
+              <div id="cleanupMinSizeValue" class="unit-hint"></div>
+            </div>
+            <div class="field compact">
+              <label for="geometryMode">Geometry Mode</label>
+              <select id="geometryMode">
+                <option value="contour">Contour (Default)</option>
+                <option value="vector_trace">Vector Trace (Experimental)</option>
+              </select>
+              <div class="unit-hint">Use Vector Trace to test smoother edges and fewer tiny segments.</div>
+            </div>
           </div>
         </div>
         <div class="row">
           <div class="field compact">
-            <label for="geometryMode">Geometry Mode</label>
-            <select id="geometryMode">
-              <option value="contour">Contour (Default)</option>
-              <option value="vector_trace">Vector Trace (Experimental)</option>
-            </select>
-            <div class="unit-hint">Use Vector Trace to test smoother edges and fewer tiny segments.</div>
-          </div>
-          <div class="field compact">
             <label for="baseShapeMode">Backing Shape</label>
             <select id="baseShapeMode">
-              <option value="none">Legacy Contour Base</option>
-              <option value="contour">Follow Contour</option>
+              <option value="nobacking">No Backing</option>
+              <option value="contour" selected>Follow Contour</option>
               <option value="circle">Circle</option>
               <option value="rectangle">Rectangle</option>
             </select>
@@ -102,8 +118,6 @@
         <div id="status" class="status">Upload an image to start.</div>
 
         <div class="actions">
-          <button id="detectBtn" disabled>Detect Colors</button>
-          <button id="quantizeBtn" disabled>Reduce to Target Colors</button>
           <button id="generateBtn" disabled>Generate 3D Model</button>
         </div>
 
@@ -115,6 +129,10 @@
 
         <div>
           <h3>Export</h3>
+          <div class="field compact">
+            <label for="exportFileName">Export Filename</label>
+            <input id="exportFileName" type="text" value="jibbitz-model" />
+          </div>
           <div class="actions">
             <button id="downloadCombinedBtn" disabled>Download Combined STL</button>
             <button id="download3mfBtn" disabled>Download Combined 3MF</button>
