@@ -53,6 +53,7 @@ let sourceImage = null;
 let imageData = null;
 let reduced = null;
 let currentPalette = [];
+let currentColorLabels = [];
 let modelGroup = null;
 let layerMeshes = [];
 
@@ -140,6 +141,85 @@ function tintHex(hex, factor) {
   ]);
 }
 
+function toTitleCase(text) {
+  return text.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function rgbToHsl([r, g, b]) {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const delta = max - min;
+  const l = (max + min) / 2;
+  let h = 0;
+  let s = 0;
+  if (delta > 0) {
+    s = delta / (1 - Math.abs(2 * l - 1));
+    if (max === rn) h = ((gn - bn) / delta) % 6;
+    else if (max === gn) h = (bn - rn) / delta + 2;
+    else h = (rn - gn) / delta + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return [h, s * 100, l * 100];
+}
+
+function approximateColorName(rgb) {
+  const [h, s, l] = rgbToHsl(rgb);
+  if (s < 12) {
+    if (l < 10) return "black";
+    if (l < 24) return "charcoal";
+    if (l < 45) return "gray";
+    if (l < 72) return "silver";
+    return "white";
+  }
+
+  let base;
+  if (h < 15 || h >= 345) base = "red";
+  else if (h < 35) base = l < 45 ? "brown" : "orange";
+  else if (h < 56) base = l < 45 ? "brown" : "yellow";
+  else if (h < 85) base = "lime";
+  else if (h < 160) base = "green";
+  else if (h < 192) base = "teal";
+  else if (h < 220) base = "cyan";
+  else if (h < 252) base = "blue";
+  else if (h < 276) base = "indigo";
+  else if (h < 306) base = "purple";
+  else if (h < 336) base = "magenta";
+  else base = "rose";
+
+  if (base === "brown" && l > 62) return "tan";
+
+  let tone = "";
+  if (l < 22) tone = "dark";
+  else if (l > 78) tone = "light";
+  else if (s < 35) tone = "muted";
+
+  return tone ? `${tone} ${base}` : base;
+}
+
+function buildUniqueColorLabels(palette) {
+  const counts = new Map();
+  const out = [];
+  for (const rgb of palette) {
+    const base = approximateColorName(rgb);
+    const next = (counts.get(base) || 0) + 1;
+    counts.set(base, next);
+    out.push(next === 1 ? base : `${base} ${next}`);
+  }
+  return out;
+}
+
+function sanitizePartName(name) {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return slug || "color";
+}
+
 function getResolutionRecommendation() {
   const targetMm = clamp(parseFloat(targetSizeMmInput.value) || 30, 12, 60);
   const nozzleMm = clamp(parseFloat(nozzleMmInput.value) || 0.4, 0.2, 1.2);
@@ -183,13 +263,15 @@ function getStemHexFromSelection() {
   return toHex(rgb).toUpperCase();
 }
 
-function setStemOptionLabel(idx, hex) {
+function setStemOptionLabel(idx, hex, colorLabel = "") {
   const opt = stemPaletteIndexSelect.options[idx];
   if (!opt) return;
-  opt.textContent = `C${idx + 1} ${hex}`;
+  const displayName = colorLabel ? toTitleCase(colorLabel) : `Color ${idx + 1}`;
+  opt.textContent = `${displayName} ${hex}`;
 }
 
 function syncStemSelectionOptions(palette) {
+  const labels = buildUniqueColorLabels(palette);
   const prev = clamp(parseInt(stemPaletteIndexSelect.value || "0", 10), 0, Math.max(0, palette.length - 1));
   stemPaletteIndexSelect.innerHTML = "";
   if (!palette.length) {
@@ -202,7 +284,7 @@ function syncStemSelectionOptions(palette) {
     const hex = toHex(rgb).toUpperCase();
     const option = document.createElement("option");
     option.value = String(idx);
-    option.textContent = `C${idx + 1} ${hex}`;
+    option.textContent = `${toTitleCase(labels[idx])} ${hex}`;
     stemPaletteIndexSelect.appendChild(option);
   });
 
@@ -565,13 +647,16 @@ function redrawProcessedPreview() {
 }
 
 function renderPalette(palette) {
+  currentColorLabels = buildUniqueColorLabels(palette);
   paletteEl.innerHTML = "";
   palette.forEach((rgb, idx) => {
     const holder = document.createElement("div");
     holder.className = "swatch";
 
     const label = document.createElement("span");
-    label.textContent = `C${idx + 1}`;
+    label.className = "swatch-name";
+    label.dataset.idx = String(idx);
+    label.textContent = toTitleCase(currentColorLabels[idx] || `color ${idx + 1}`);
 
     const pickerWrap = document.createElement("label");
     pickerWrap.className = "picker-wrap";
@@ -594,10 +679,18 @@ function renderPalette(palette) {
     input.addEventListener("input", () => {
       preview.style.backgroundColor = input.value;
       hexLabel.textContent = input.value.toUpperCase();
-      setStemOptionLabel(idx, input.value.toUpperCase());
-      if (parseInt(stemPaletteIndexSelect.value || "0", 10) === idx) {
-        updateStemPreview(input.value.toUpperCase());
+      const allInputs = [...paletteEl.querySelectorAll("input[type='color']")];
+      const workingPalette = allInputs.map((el) => hexToRgb(el.value));
+      const labels = buildUniqueColorLabels(workingPalette);
+      currentColorLabels = labels;
+      const allNameEls = [...paletteEl.querySelectorAll(".swatch-name")];
+      for (let i = 0; i < allNameEls.length; i++) {
+        allNameEls[i].textContent = toTitleCase(labels[i] || `color ${i + 1}`);
       }
+      for (let i = 0; i < allInputs.length; i++) {
+        setStemOptionLabel(i, allInputs[i].value.toUpperCase(), labels[i]);
+      }
+      updateStemPreview(getStemHexFromSelection());
     });
 
     pickerWrap.append(preview, input);
@@ -614,6 +707,7 @@ function rebuildUsingPaletteInputs() {
   const inputs = [...paletteEl.querySelectorAll("input[type='color']")];
   const palette = inputs.map((el) => hexToRgb(el.value));
   currentPalette = palette;
+  currentColorLabels = buildUniqueColorLabels(palette);
   reduced = buildIndexedFromPalette(imageData, palette);
   drawProcessed(reduced, state.width, state.height);
   syncStemSelectionOptions(palette);
@@ -1047,6 +1141,7 @@ function generateModel() {
   const attachMask = buildBaseMask(reducedForModel.alphaMask, width, height, baseShapeMode, baseShapePadding);
 
   const zBaseForColors = baseThickness;
+  const layerColorLabels = buildUniqueColorLabels(reducedForModel.palette);
   const baseGrid = gridFromMask(attachMask, width, height, (m, i) => m[i] === 1);
   const baseGeo = buildLayerGeometry(baseGrid, width, height, pxSize, baseThickness, 0, geometryMode);
   if (!baseGeo) {
@@ -1074,9 +1169,11 @@ function generateModel() {
         metalness: 0,
       })
     );
-    mesh.name = `color_${c + 1}`;
+    const colorLabel = layerColorLabels[c] || `color ${c + 1}`;
+    const colorPartName = `color_${sanitizePartName(colorLabel)}`;
+    mesh.name = colorPartName;
     group.add(mesh);
-    layerMeshes.push({ name: `color_${c + 1}`, mesh });
+    layerMeshes.push({ name: toTitleCase(colorLabel), fileName: colorPartName, mesh });
   }
 
   const attach = findStemAttachPoint(attachMask, width, height);
@@ -1371,14 +1468,14 @@ async function export3MF(root, filename, options = {}) {
 
 function renderLayerButtons() {
   layerExports.innerHTML = "";
-  for (const { name, mesh } of layerMeshes) {
+  for (const { name, fileName, mesh } of layerMeshes) {
     const btn = document.createElement("button");
     btn.textContent = `Download ${name}.stl`;
     btn.addEventListener("click", () => {
       const geo = buildCombinedGeometry(mesh, { includeStem: true, faceDown: true });
       if (!geo) return;
       const outMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial());
-      exportSTL(outMesh, `${name}.stl`);
+      exportSTL(outMesh, `${fileName || sanitizePartName(name)}.stl`);
       outMesh.geometry.dispose();
     });
     layerExports.appendChild(btn);
@@ -1536,7 +1633,7 @@ downloadCombinedBtn.addEventListener("click", () => {
   const mesh = new THREE.Mesh(combined, new THREE.MeshStandardMaterial());
   exportSTL(mesh, "jibbitz-combined.stl");
   mesh.geometry.dispose();
-  setStatus("Combined STL exported. Note: STL has no color metadata. For AMS multi-color, import base/color_n/stem STLs as parts.");
+  setStatus("Combined STL exported. Note: STL has no color metadata. For AMS multi-color, import base/named color/stem STLs as parts.");
 });
 
 download3mfBtn.addEventListener("click", async () => {
