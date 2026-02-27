@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+set -eu
+
+printf "[pre-commit] Running color detection tests...\n"
+node tests/run-color-detection-tests.mjs
+printf "[pre-commit] OK\n"

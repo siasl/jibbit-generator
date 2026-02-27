@@ -34,3 +34,19 @@ Then open:
 - Single-material: export `jibbitz-combined.stl`.
 - Multi-color/material: export each layer STL and assign different filaments/colors in your slicer.
 
+
+## Automated test gate (pre-commit)
+
+This repo uses a Git pre-commit hook to block commits if color detection tests fail.
+
+Current hook path:
+
+```bash
+git config --get core.hooksPath
+```
+
+Manual run:
+
+```bash
+node tests/run-color-detection-tests.mjs
+```

@@ -58,6 +58,45 @@
             </div>
           </div>
         </div>
+        <div class="row">
+          <div class="field compact">
+            <label for="cleanupIslands">Small-Island Cleanup</label>
+            <input id="cleanupIslands" type="checkbox" checked />
+          </div>
+          <div class="field compact">
+            <label for="cleanupMinSize">Min Island Size (px)</label>
+            <input id="cleanupMinSize" type="range" min="1" max="40" step="1" value="8" />
+            <div id="cleanupMinSizeValue" class="unit-hint"></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field compact">
+            <label for="geometryMode">Geometry Mode</label>
+            <select id="geometryMode">
+              <option value="contour">Contour (Default)</option>
+              <option value="vector_trace">Vector Trace (Experimental)</option>
+            </select>
+            <div class="unit-hint">Use Vector Trace to test smoother edges and fewer tiny segments.</div>
+          </div>
+          <div class="field compact">
+            <label for="baseShapeMode">Backing Shape</label>
+            <select id="baseShapeMode">
+              <option value="none">Legacy Contour Base</option>
+              <option value="contour">Follow Contour</option>
+              <option value="circle">Circle</option>
+              <option value="rectangle">Rectangle</option>
+            </select>
+          </div>
+          <div class="field compact">
+            <label for="baseShapePadding">Shape Padding (px)</label>
+            <input id="baseShapePadding" type="range" min="0" max="24" step="1" value="4" />
+            <div id="baseShapePaddingValue" class="unit-hint"></div>
+          </div>
+          <div class="field compact">
+            <label for="showBaseOverlay">Show Shape Overlay</label>
+            <input id="showBaseOverlay" type="checkbox" checked />
+          </div>
+        </div>
         <div id="resolutionHelp" class="hint"></div>
 
         <div id="status" class="status">Upload an image to start.</div>
@@ -78,6 +117,8 @@
           <h3>Export</h3>
           <div class="actions">
             <button id="downloadCombinedBtn" disabled>Download Combined STL</button>
+            <button id="download3mfBtn" disabled>Download Combined 3MF</button>
+            <button id="downloadStemBtn" disabled>Download stem.stl</button>
           </div>
           <div id="layerExports" class="layer-exports"></div>
         </div>
