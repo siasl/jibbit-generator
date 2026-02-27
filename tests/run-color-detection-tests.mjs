@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { detectColors, estimateNeededColorCount } from "../colorDetection.mjs";
+import { buildMergedPaletteFromDetection, detectColors, estimateNeededColorCount } from "../colorDetection.mjs";
 
 function makeImageData(width, height, fill = [0, 0, 0, 255]) {
   const data = new Uint8ClampedArray(width * height * 4);
@@ -81,9 +81,36 @@ function runSnowbirdLikeTest() {
   assert.equal(estimated, 3);
 }
 
+function runWebpLikeMarginBackgroundTest() {
+  // Simulate a logo rendered onto transparent margins (current working-pixel flow).
+  // The white card area should still be treated as background, preserving blue+red print colors.
+  const img = makeImageData(120, 120, [0, 0, 0, 0]);
+  const white = [246, 246, 247];
+  const blue = [43, 56, 155];
+  const red = [240, 32, 43];
+
+  rect(img, 18, 12, 102, 108, white);
+  rect(img, 26, 48, 96, 82, blue);
+  rect(img, 30, 20, 43, 35, red);
+  rect(img, 78, 18, 94, 33, red);
+
+  const detection = detectColors(img, img.width, img.height);
+  const estimated = estimateNeededColorCount(img, img.width, img.height, 1, 4);
+  const palette = buildMergedPaletteFromDetection(detection, 3);
+
+  assert.ok(detection.backgroundIndex >= 0, "expected white card to be detected as background");
+  assert.ok(detection.neededColors.length >= 2, `expected at least 2 foreground colors, got ${detection.neededColors.length}`);
+  assert.ok(estimated >= 2, `expected at least 2 estimated colors, got ${estimated}`);
+  const hasBlue = palette.some((p) => p[2] > p[0] + 25 && p[2] > p[1] + 15);
+  const hasRed = palette.some((p) => p[0] > p[2] + 45 && p[0] > p[1] + 20);
+  assert.ok(hasBlue, `expected blue-like cluster in merged palette, got ${JSON.stringify(palette)}`);
+  assert.ok(hasRed, `expected red-like cluster in merged palette, got ${JSON.stringify(palette)}`);
+}
+
 const tests = [
   ["ALTA-like logo", runAltaLikeTest],
   ["Snowbird-like logo", runSnowbirdLikeTest],
+  ["WebP-like with transparent margins", runWebpLikeMarginBackgroundTest],
 ];
 
 let failed = 0;

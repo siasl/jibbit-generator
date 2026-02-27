@@ -3,7 +3,7 @@ import { OrbitControls } from "https://unpkg.com/three@0.161.0/examples/jsm/cont
 import { STLExporter } from "https://unpkg.com/three@0.161.0/examples/jsm/exporters/STLExporter.js";
 import { mergeGeometries, mergeVertices } from "https://unpkg.com/three@0.161.0/examples/jsm/utils/BufferGeometryUtils.js";
 import JSZip from "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm";
-import { detectColors, estimateNeededColorCount } from "./colorDetection.mjs";
+import { buildMergedPaletteFromDetection, detectColors, estimateNeededColorCount } from "./colorDetection.mjs";
 
 if (window.location.hostname === "[::]") {
   const safeHostUrl = `${window.location.protocol}//localhost:${window.location.port}${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -450,6 +450,12 @@ function buildIndexedFromPalette(imgData, palette) {
   return { palette, indexed, alphaMask };
 }
 
+function reduceFromDetectionPalette(imgData, detection, target) {
+  const palette = buildMergedPaletteFromDetection(detection, target);
+  if (!palette.length) return kmeansReduce(imgData, target, 16);
+  return buildIndexedFromPalette(imgData, palette);
+}
+
 function cleanupSmallIslands(reducedData, width, height, minSize) {
   if (!reducedData || !reducedData.palette.length || minSize <= 1) return reducedData;
   const indexed = new Int16Array(reducedData.indexed);
@@ -511,6 +517,105 @@ function cleanupSmallIslands(reducedData, width, height, minSize) {
   }
 
   return { palette: reducedData.palette, indexed, alphaMask };
+}
+
+function collapseTinyColorLayers(reducedData, width, height, minPixels = 12, minShare = 0.0035) {
+  if (!reducedData || !reducedData.palette.length || reducedData.palette.length < 2) {
+    return { reduced: reducedData, removedColors: 0, reassignedPixels: 0 };
+  }
+
+  const indexed = reducedData.indexed;
+  const alphaMask = reducedData.alphaMask;
+  const palette = reducedData.palette;
+  const counts = new Array(palette.length).fill(0);
+  let opaquePixels = 0;
+
+  for (let i = 0; i < indexed.length; i++) {
+    if (!alphaMask[i] || indexed[i] < 0) continue;
+    opaquePixels += 1;
+    if (indexed[i] < counts.length) counts[indexed[i]] += 1;
+  }
+
+  const threshold = Math.max(1, Math.max(minPixels, Math.ceil(opaquePixels * minShare)));
+  const major = [];
+  const minor = [];
+  for (let i = 0; i < counts.length; i++) {
+    if (!counts[i]) continue;
+    if (counts[i] >= threshold) major.push(i);
+    else minor.push(i);
+  }
+
+  if (!minor.length) return { reduced: reducedData, removedColors: 0, reassignedPixels: 0 };
+  if (!major.length) {
+    const largest = counts.reduce((best, c, i) => (c > counts[best] ? i : best), 0);
+    major.push(largest);
+    const idx = minor.indexOf(largest);
+    if (idx >= 0) minor.splice(idx, 1);
+  }
+  if (!minor.length) return { reduced: reducedData, removedColors: 0, reassignedPixels: 0 };
+
+  const remap = new Int16Array(palette.length).fill(-1);
+  for (const i of major) remap[i] = i;
+
+  for (const i of minor) {
+    let best = major[0];
+    let bestDist = Infinity;
+    const rgb = palette[i];
+    for (const j of major) {
+      const p = palette[j];
+      const dr = rgb[0] - p[0];
+      const dg = rgb[1] - p[1];
+      const db = rgb[2] - p[2];
+      const d2 = dr * dr + dg * dg + db * db;
+      if (d2 < bestDist) {
+        bestDist = d2;
+        best = j;
+      }
+    }
+    remap[i] = best;
+  }
+
+  let reassignedPixels = 0;
+  const mappedIndexed = new Int16Array(indexed.length).fill(-1);
+  for (let i = 0; i < indexed.length; i++) {
+    if (!alphaMask[i] || indexed[i] < 0) continue;
+    const src = indexed[i];
+    const dst = remap[src] >= 0 ? remap[src] : src;
+    mappedIndexed[i] = dst;
+    if (dst !== src) reassignedPixels += 1;
+  }
+
+  const oldToNew = new Int16Array(palette.length).fill(-1);
+  const compactPalette = [];
+  for (let i = 0; i < palette.length; i++) {
+    let used = false;
+    for (let p = 0; p < mappedIndexed.length; p++) {
+      if (mappedIndexed[p] === i) {
+        used = true;
+        break;
+      }
+    }
+    if (!used) continue;
+    oldToNew[i] = compactPalette.length;
+    compactPalette.push(palette[i].slice());
+  }
+
+  const compactIndexed = new Int16Array(mappedIndexed.length).fill(-1);
+  for (let i = 0; i < mappedIndexed.length; i++) {
+    const v = mappedIndexed[i];
+    if (v < 0) continue;
+    compactIndexed[i] = oldToNew[v];
+  }
+
+  return {
+    reduced: {
+      palette: compactPalette,
+      indexed: compactIndexed,
+      alphaMask: new Uint8Array(alphaMask),
+    },
+    removedColors: minor.length,
+    reassignedPixels,
+  };
 }
 
 function getMaskBounds(mask, width, height) {
@@ -757,23 +862,88 @@ function buildContentMask(reducedData, width, height) {
 }
 
 function findStemAttachPoint(mask, width, height) {
-  const cx = (width - 1) / 2;
-  const cy = (height - 1) / 2;
-  let best = null;
-  let bestD2 = Infinity;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (!mask[y * width + x]) continue;
-      const dx = x - cx;
-      const dy = y - cy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bestD2) {
-        bestD2 = d2;
-        best = { x, y };
+  const total = width * height;
+  const dist = new Int32Array(total);
+  const queue = new Int32Array(total);
+  let qh = 0;
+  let qt = 0;
+
+  // Multi-source BFS from all empty/outside cells gives each filled cell
+  // a distance-to-boundary score; max score approximates thickest region.
+  for (let i = 0; i < total; i++) {
+    if (mask[i]) {
+      dist[i] = -1;
+    } else {
+      dist[i] = 0;
+      queue[qt++] = i;
+    }
+  }
+
+  if (!qt) {
+    const cx = Math.floor((width - 1) / 2);
+    const cy = Math.floor((height - 1) / 2);
+    return { x: cx, y: cy };
+  }
+
+  while (qh < qt) {
+    const i = queue[qh++];
+    const d = dist[i];
+    const x = i % width;
+    const y = Math.floor(i / width);
+
+    if (x > 0) {
+      const n = i - 1;
+      if (dist[n] === -1) {
+        dist[n] = d + 1;
+        queue[qt++] = n;
+      }
+    }
+    if (x < width - 1) {
+      const n = i + 1;
+      if (dist[n] === -1) {
+        dist[n] = d + 1;
+        queue[qt++] = n;
+      }
+    }
+    if (y > 0) {
+      const n = i - width;
+      if (dist[n] === -1) {
+        dist[n] = d + 1;
+        queue[qt++] = n;
+      }
+    }
+    if (y < height - 1) {
+      const n = i + width;
+      if (dist[n] === -1) {
+        dist[n] = d + 1;
+        queue[qt++] = n;
       }
     }
   }
-  return best || { x: Math.floor(cx), y: Math.floor(cy) };
+
+  const cx = (width - 1) / 2;
+  const cy = (height - 1) / 2;
+  let bestIdx = -1;
+  let bestScore = -1;
+  let bestCenterD2 = Infinity;
+  for (let i = 0; i < total; i++) {
+    if (!mask[i]) continue;
+    const score = dist[i];
+    if (score < 0) continue;
+    const x = i % width;
+    const y = Math.floor(i / width);
+    const dx = x - cx;
+    const dy = y - cy;
+    const centerD2 = dx * dx + dy * dy;
+    if (score > bestScore || (score === bestScore && centerD2 < bestCenterD2)) {
+      bestScore = score;
+      bestCenterD2 = centerD2;
+      bestIdx = i;
+    }
+  }
+
+  if (bestIdx >= 0) return { x: bestIdx % width, y: Math.floor(bestIdx / width) };
+  return { x: Math.floor(cx), y: Math.floor(cy) };
 }
 
 function drawProcessed(reducedData, width, height) {
@@ -1340,7 +1510,15 @@ function generateModel() {
 
   const longest = Math.max(width, height);
   const pxSize = targetMm / longest;
-  const reducedForModel = cleanupOn ? cleanupSmallIslands(reduced, width, height, cleanupMinSize) : reduced;
+  const islandCleaned = cleanupOn ? cleanupSmallIslands(reduced, width, height, cleanupMinSize) : reduced;
+  const tinyColorMerge = collapseTinyColorLayers(
+    islandCleaned,
+    width,
+    height,
+    Math.max(6, cleanupOn ? cleanupMinSize * 2 : 12),
+    0.0035
+  );
+  const reducedForModel = tinyColorMerge.reduced;
 
   const group = new THREE.Group();
 
@@ -1420,7 +1598,10 @@ function generateModel() {
   setStatus(
     `3D model generated. Approx size: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} mm. ` +
       `Mode: ${geometryMode === "vector_trace" ? "Vector Trace" : "Contour"}, base: ${baseShapeMode}. ` +
-      `Combined exports are auto-oriented logo-face down.`
+      `Combined exports are auto-oriented logo-face down.` +
+      (tinyColorMerge.removedColors > 0
+        ? ` Auto-merged ${tinyColorMerge.removedColors} tiny color layer${tinyColorMerge.removedColors === 1 ? "" : "s"}.`
+        : "")
   );
 }
 
@@ -1746,7 +1927,10 @@ detectBtn.addEventListener("click", () => {
   const found = detection.colors.map((c) => [...c.rgb, c.count]);
   const needed = detection.neededColors.map((c) => [...c.rgb, c.count]);
   const estimatedNeeded = estimateNeededColorCount(imageData, state.width, state.height, 1, 4);
-  const autoTarget = needed.length <= 1 ? 1 : clamp(estimatedNeeded || needed.length || found.length || 1, 1, 4);
+  const strongFoundCount = detection.colors.filter((c) => c.count / Math.max(1, detection.opaquePixels) >= 0.02).length;
+  const forceSingle = needed.length <= 1 && strongFoundCount <= 1;
+  const baselineMulti = Math.max(needed.length, strongFoundCount >= 2 ? 2 : 1);
+  const autoTarget = forceSingle ? 1 : clamp(Math.max(estimatedNeeded || 1, baselineMulti), 1, 4);
   targetColorsInput.value = String(autoTarget);
   const target = autoTarget;
 
@@ -1761,7 +1945,7 @@ detectBtn.addEventListener("click", () => {
       `Detected ${needed.length || found.length} generalized shades, estimated ${target} print colors. Auto-set target to ${target}.`
     );
   } else {
-    reduced = kmeansReduce(imageData, target, 16);
+    reduced = reduceFromDetectionPalette(imageData, detection, target);
     currentPalette = reduced.palette.map((p) => p.slice());
     drawProcessed(reduced, state.width, state.height);
     renderPalette(currentPalette);
@@ -1776,7 +1960,8 @@ quantizeBtn.addEventListener("click", () => {
     return;
   }
   const target = clamp(parseInt(targetColorsInput.value, 10) || 4, 1, 4);
-  reduced = kmeansReduce(imageData, target, 18);
+  const detection = detectColors(imageData, state.width, state.height);
+  reduced = reduceFromDetectionPalette(imageData, detection, target);
   currentPalette = reduced.palette.map((p) => p.slice());
   drawProcessed(reduced, state.width, state.height);
   renderPalette(currentPalette);

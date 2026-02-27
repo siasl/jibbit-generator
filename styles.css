@@ -260,6 +260,10 @@ button:disabled {
   gap: 10px;
 }
 
+.advanced-options[hidden] {
+  display: none !important;
+}
+
 .palette {
   display: flex;
   flex-wrap: wrap;

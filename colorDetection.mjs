@@ -21,11 +21,36 @@ function nearestColorIndex(rgb, palette) {
   return best;
 }
 
+function rgbToHsl(rgb) {
+  const r = rgb[0] / 255;
+  const g = rgb[1] / 255;
+  const b = rgb[2] / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  const l = (max + min) * 0.5;
+  let h = 0;
+  let s = 0;
+  if (d > 0) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return [h, s * 100, l * 100];
+}
+
 export function detectColors(imgData, width, height) {
   const map = new Map();
   const d = imgData.data;
   let opaquePixels = 0;
   let edgeOpaquePixels = 0;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
 
   const isEdgePixel = (p) => {
     const x = p % width;
@@ -37,6 +62,12 @@ export function detectColors(imgData, width, height) {
     const a = d[i + 3];
     if (a < 20) continue;
     opaquePixels += 1;
+    const x = p % width;
+    const y = Math.floor(p / width);
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
     const isEdge = isEdgePixel(p);
     if (isEdge) edgeOpaquePixels += 1;
     const key = quantizedKey(d[i], d[i + 1], d[i + 2], a);
@@ -48,7 +79,32 @@ export function detectColors(imgData, width, height) {
       item.sumB += d[i + 2];
       if (isEdge) item.edgeCount += 1;
     } else {
-      map.set(key, { key, count: 1, sumR: d[i], sumG: d[i + 1], sumB: d[i + 2], edgeCount: isEdge ? 1 : 0 });
+      map.set(key, {
+        key,
+        count: 1,
+        sumR: d[i],
+        sumG: d[i + 1],
+        sumB: d[i + 2],
+        edgeCount: isEdge ? 1 : 0,
+        bboxEdgeCount: 0,
+      });
+    }
+  }
+
+  // Track coverage on the opaque bounding-box edge so background stripping still works
+  // when the working image has transparent margins.
+  let bboxEdgeOpaquePixels = 0;
+  if (maxX >= minX && maxY >= minY) {
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+      const a = d[i + 3];
+      if (a < 20) continue;
+      const x = p % width;
+      const y = Math.floor(p / width);
+      if (x !== minX && x !== maxX && y !== minY && y !== maxY) continue;
+      bboxEdgeOpaquePixels += 1;
+      const key = quantizedKey(d[i], d[i + 1], d[i + 2], a);
+      const item = map.get(key);
+      if (item) item.bboxEdgeCount += 1;
     }
   }
 
@@ -57,11 +113,15 @@ export function detectColors(imgData, width, height) {
       rgb: [Math.round(c.sumR / c.count), Math.round(c.sumG / c.count), Math.round(c.sumB / c.count)],
       count: c.count,
       edgeCount: c.edgeCount,
+      bboxEdgeCount: c.bboxEdgeCount || 0,
     }))
     .sort((a, b) => b.count - a.count);
 
-  const minShare = 0.004;
+  // Keep smaller accent colors (common in logos) instead of dropping them too early.
+  const minShare = 0.002;
   const significantRaw = rawColors.filter((c) => c.count / Math.max(1, opaquePixels) >= minShare);
+  const candidateRaw =
+    significantRaw.length >= 2 ? significantRaw : rawColors.slice(0, Math.min(6, Math.max(2, rawColors.length)));
 
   const distSq = (a, b) => {
     const dr = a[0] - b[0];
@@ -72,7 +132,7 @@ export function detectColors(imgData, width, height) {
 
   const mergeThresholdSq = 48 * 48;
   const merged = [];
-  for (const c of significantRaw) {
+  for (const c of candidateRaw) {
     let best = -1;
     let bestDist = Infinity;
     for (let i = 0; i < merged.length; i++) {
@@ -87,6 +147,7 @@ export function detectColors(imgData, width, height) {
         rgb: c.rgb.slice(),
         count: c.count,
         edgeCount: c.edgeCount,
+        bboxEdgeCount: c.bboxEdgeCount || 0,
         sumR: c.rgb[0] * c.count,
         sumG: c.rgb[1] * c.count,
         sumB: c.rgb[2] * c.count,
@@ -95,6 +156,7 @@ export function detectColors(imgData, width, height) {
       const m = merged[best];
       m.count += c.count;
       m.edgeCount += c.edgeCount;
+      m.bboxEdgeCount += c.bboxEdgeCount || 0;
       m.sumR += c.rgb[0] * c.count;
       m.sumG += c.rgb[1] * c.count;
       m.sumB += c.rgb[2] * c.count;
@@ -107,21 +169,79 @@ export function detectColors(imgData, width, height) {
       rgb: c.rgb,
       count: c.count,
       edgeCount: c.edgeCount,
+      bboxEdgeCount: c.bboxEdgeCount || 0,
     }))
     .sort((a, b) => b.count - a.count);
 
   let backgroundIndex = -1;
   if (colors.length > 1) {
-    const edgeDominant = colors.reduce((best, cur) => (cur.edgeCount > best.edgeCount ? cur : best), colors[0]);
-    const edgeCoverage = edgeOpaquePixels ? edgeDominant.edgeCount / edgeOpaquePixels : 0;
+    const useBBoxEdge = bboxEdgeOpaquePixels > 0;
+    const edgeDominant = colors.reduce((best, cur) => {
+      const bestCount = useBBoxEdge ? best.bboxEdgeCount : best.edgeCount;
+      const curCount = useBBoxEdge ? cur.bboxEdgeCount : cur.edgeCount;
+      return curCount > bestCount ? cur : best;
+    }, colors[0]);
+    const edgeCoverage = useBBoxEdge
+      ? edgeDominant.bboxEdgeCount / Math.max(1, bboxEdgeOpaquePixels)
+      : edgeDominant.edgeCount / Math.max(1, edgeOpaquePixels);
     const areaCoverage = opaquePixels ? edgeDominant.count / opaquePixels : 0;
-    if (edgeCoverage >= 0.45 && areaCoverage >= 0.12) {
+    const [, sat, light] = rgbToHsl(edgeDominant.rgb);
+    // Only strip edge-dominant color as background when it looks background-like.
+    const backgroundLike = sat < 24 || light > 70 || light < 18;
+    if (edgeCoverage >= 0.45 && areaCoverage >= 0.12 && backgroundLike) {
       backgroundIndex = colors.indexOf(edgeDominant);
     }
   }
 
   const neededColors = colors.filter((_, idx) => idx !== backgroundIndex);
   return { colors, neededColors, backgroundIndex, opaquePixels };
+}
+
+function distSq(a, b) {
+  const dr = a[0] - b[0];
+  const dg = a[1] - b[1];
+  const db = a[2] - b[2];
+  return dr * dr + dg * dg + db * db;
+}
+
+export function buildMergedPaletteFromDetection(detection, targetColors = 4) {
+  const target = Math.max(1, Math.min(12, Math.round(targetColors || 4)));
+  let pool = (detection.neededColors && detection.neededColors.length ? detection.neededColors : detection.colors).map((c) => ({
+    rgb: c.rgb.slice(),
+    count: Math.max(1, c.count || 1),
+  }));
+  if (!pool.length) return [];
+
+  while (pool.length > target) {
+    let bestI = 0;
+    let bestJ = 1;
+    let best = Infinity;
+    for (let i = 0; i < pool.length; i++) {
+      for (let j = i + 1; j < pool.length; j++) {
+        const d2 = distSq(pool[i].rgb, pool[j].rgb);
+        if (d2 < best) {
+          best = d2;
+          bestI = i;
+          bestJ = j;
+        }
+      }
+    }
+    const a = pool[bestI];
+    const b = pool[bestJ];
+    const total = a.count + b.count;
+    pool[bestI] = {
+      rgb: [
+        Math.round((a.rgb[0] * a.count + b.rgb[0] * b.count) / total),
+        Math.round((a.rgb[1] * a.count + b.rgb[1] * b.count) / total),
+        Math.round((a.rgb[2] * a.count + b.rgb[2] * b.count) / total),
+      ],
+      count: total,
+    };
+    pool.splice(bestJ, 1);
+  }
+
+  pool.sort((a, b) => b.count - a.count);
+  return pool.map((p) => p.rgb.slice());
 }
 
 function sampleOpaquePixels(imgData, maxSamples = 12000, excludedRgb = null, excludedDist = 40) {
@@ -191,7 +311,12 @@ function kmeansErrorForK(pixels, k, iters = 10) {
 
 export function estimateNeededColorCount(imgData, width, height, minK = 2, maxK = 4) {
   const detection = detectColors(imgData, width, height);
-  if (detection.neededColors.length <= 1) return Math.max(1, Math.min(maxK, detection.neededColors.length || 1));
+  if (detection.neededColors.length <= 1) {
+    const dominantAll = detection.colors.filter((c) => c.count / Math.max(1, detection.opaquePixels) >= 0.02).length;
+    if (dominantAll <= 1) return 1;
+  }
+
+  const effectiveMinK = detection.neededColors.length <= 1 ? Math.max(2, minK) : minK;
 
   const luminance = (rgb) => 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
   const shareOf = (c) => c.count / Math.max(1, detection.opaquePixels);
@@ -204,7 +329,7 @@ export function estimateNeededColorCount(imgData, width, height, minK = 2, maxK 
   }
 
   const dominantNeeded = detection.neededColors.filter((c) => c.count / Math.max(1, detection.opaquePixels) >= 0.03);
-  if (dominantNeeded.length >= minK && dominantNeeded.length <= maxK) {
+  if (dominantNeeded.length >= effectiveMinK && dominantNeeded.length <= maxK) {
     return dominantNeeded.length;
   }
 
@@ -214,16 +339,16 @@ export function estimateNeededColorCount(imgData, width, height, minK = 2, maxK 
     // Fallback: do not exclude background if too little data remains.
     pixels = sampleOpaquePixels(imgData, 12000);
   }
-  if (!pixels.length) return minK;
+  if (!pixels.length) return effectiveMinK;
 
   const errors = {};
-  for (let k = minK; k <= maxK; k++) {
+  for (let k = effectiveMinK; k <= maxK; k++) {
     errors[k] = kmeansErrorForK(pixels, k, 10).error;
   }
 
   // Choose the smallest k where adding another color gives limited gain.
-  let chosen = minK;
-  for (let k = minK; k < maxK; k++) {
+  let chosen = effectiveMinK;
+  for (let k = effectiveMinK; k < maxK; k++) {
     const curr = errors[k];
     const next = errors[k + 1];
     if (curr <= 0) {
