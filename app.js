@@ -1618,14 +1618,35 @@ function downloadText(name, text) {
 }
 
 function downloadBlob(name, blob) {
-  const a = document.createElement("a");
   const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
   a.href = url;
   a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+
+  // On iOS/mobile, programmatic a.click() called after an async operation (like
+  // zip.generateAsync) loses the user-gesture context and is silently ignored.
+  // Instead, render a tappable link so the download is triggered by a real tap.
+  const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent);
+  if (isMobile) {
+    a.textContent = `Tap to save ${name}`;
+    a.style.cssText =
+      "display:inline-block;margin:6px 0;padding:8px 14px;" +
+      "background:#264577;color:#fff;border-radius:4px;text-decoration:none;font-size:0.9em;";
+    const container = document.getElementById("mobileDownloadLink");
+    container.innerHTML = "";
+    container.appendChild(a);
+    a.addEventListener("click", () =>
+      setTimeout(() => {
+        container.innerHTML = "";
+        URL.revokeObjectURL(url);
+      }, 1000)
+    );
+  } else {
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
 }
 
 function exportSTL(object3d, filename) {
