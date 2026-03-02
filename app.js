@@ -1617,17 +1617,30 @@ function downloadText(name, text) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-function downloadBlob(name, blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-
-  // On iOS/mobile, programmatic a.click() called after an async operation (like
-  // zip.generateAsync) loses the user-gesture context and is silently ignored.
-  // Instead, render a tappable link so the download is triggered by a real tap.
+async function downloadBlob(name, blob) {
   const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent);
+
   if (isMobile) {
+    // On iOS/mobile, blob: URLs opened via <a download> are often navigated to
+    // instead of downloaded (e.g. Arc browser shows a UUID error page).
+    // Use the Web Share API with a File object — the OS share sheet handles saving.
+    const file = new File([blob], name, { type: blob.type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: name });
+        return;
+      } catch (err) {
+        if (err.name === "AbortError") return; // user cancelled share sheet
+        // share failed — fall through to tappable-link fallback
+      }
+    }
+
+    // Fallback: tappable blob URL link (works on most mobile browsers that
+    // respect the download attribute, e.g. Chrome for Android).
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
     a.textContent = `Tap to save ${name}`;
     a.style.cssText =
       "display:inline-block;margin:6px 0;padding:8px 14px;" +
@@ -1642,6 +1655,10 @@ function downloadBlob(name, blob) {
       }, 1000)
     );
   } else {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
     document.body.appendChild(a);
     a.click();
     a.remove();
