@@ -107,10 +107,33 @@ function runWebpLikeMarginBackgroundTest() {
   assert.ok(hasRed, `expected red-like cluster in merged palette, got ${JSON.stringify(palette)}`);
 }
 
+function runExplicitTargetIncludesBackgroundTest() {
+  const img = makeImageData(120, 80, [8, 8, 10, 255]);
+  const blue = [22, 138, 195];
+  const green = [99, 176, 74];
+
+  rect(img, 10, 28, 52, 74, blue);
+  rect(img, 68, 28, 110, 74, green);
+
+  const detection = detectColors(img, img.width, img.height);
+  const palette = buildMergedPaletteFromDetection(detection, 3);
+
+  assert.ok(detection.backgroundIndex >= 0, "expected dark edge color to be detected as background");
+  assert.equal(detection.neededColors.length, 2);
+  assert.ok(palette.length >= 3, `expected 3-color palette when explicitly requested, got ${palette.length}`);
+  const hasDark = palette.some((p) => p[0] < 35 && p[1] < 35 && p[2] < 35);
+  const hasBlue = palette.some((p) => p[2] > p[0] + 20 && p[2] > p[1] + 10);
+  const hasGreen = palette.some((p) => p[1] > p[0] + 25 && p[1] > p[2] - 5);
+  assert.ok(hasDark, `expected dark/background cluster in palette, got ${JSON.stringify(palette)}`);
+  assert.ok(hasBlue, `expected blue-like cluster in palette, got ${JSON.stringify(palette)}`);
+  assert.ok(hasGreen, `expected green-like cluster in palette, got ${JSON.stringify(palette)}`);
+}
+
 const tests = [
   ["ALTA-like logo", runAltaLikeTest],
   ["Snowbird-like logo", runSnowbirdLikeTest],
   ["WebP-like with transparent margins", runWebpLikeMarginBackgroundTest],
+  ["Explicit target can include background", runExplicitTargetIncludesBackgroundTest],
 ];
 
 let failed = 0;

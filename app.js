@@ -1,8 +1,8 @@
-import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
-import { OrbitControls } from "https://unpkg.com/three@0.161.0/examples/jsm/controls/OrbitControls.js";
-import { STLExporter } from "https://unpkg.com/three@0.161.0/examples/jsm/exporters/STLExporter.js";
-import { mergeGeometries, mergeVertices } from "https://unpkg.com/three@0.161.0/examples/jsm/utils/BufferGeometryUtils.js";
-import JSZip from "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm";
+import * as THREE from "three";
+import { OrbitControls } from "./vendor/three/examples/jsm/controls/OrbitControls.js";
+import { STLExporter } from "./vendor/three/examples/jsm/exporters/STLExporter.js";
+import { mergeGeometries, mergeVertices } from "./vendor/three/examples/jsm/utils/BufferGeometryUtils.js";
+import JSZip from "./vendor/jszip/jszip.esm.min.js";
 import { buildMergedPaletteFromDetection, detectColors, estimateNeededColorCount } from "./colorDetection.mjs";
 
 if (window.location.hostname === "[::]") {
@@ -17,6 +17,7 @@ const generateBtn = document.getElementById("generateBtn");
 const applyPaletteBtn = document.getElementById("applyPaletteBtn");
 const downloadCombinedBtn = document.getElementById("downloadCombinedBtn");
 const download3mfBtn = document.getElementById("download3mfBtn");
+const openInBambuBtn = document.getElementById("openInBambuBtn");
 const downloadStemBtn = document.getElementById("downloadStemBtn");
 const exportFileNameInput = document.getElementById("exportFileName");
 const layerExports = document.getElementById("layerExports");
@@ -31,6 +32,7 @@ const targetSizeMmInput = document.getElementById("targetSizeMm");
 const nozzleMmInput = document.getElementById("nozzleMm");
 const stemPaletteIndexSelect = document.getElementById("stemPaletteIndex");
 const stemColorPreview = document.getElementById("stemColorPreview");
+const attachmentModeSelect = document.getElementById("attachmentMode");
 const baseColorInput = document.getElementById("baseColor");
 const geometryModeSelect = document.getElementById("geometryMode");
 const baseShapeModeSelect = document.getElementById("baseShapeMode");
@@ -285,6 +287,111 @@ function updateUnitHints() {
 
 function updateStemPreview(hex) {
   stemColorPreview.style.backgroundColor = hex;
+}
+
+function describeReductionResult(target, actual) {
+  if (actual === target) return `Image reduced to ${actual} colors. You can tweak palette colors and apply.`;
+  return `Requested ${target} colors, generated ${actual} from detected image regions. You can tweak palette colors and apply.`;
+}
+
+function getAttachmentMode() {
+  return attachmentModeSelect?.value === "keychain_loop" ? "keychain_loop" : "stem";
+}
+
+function getAttachmentDisplayName(mode = getAttachmentMode()) {
+  return mode === "keychain_loop" ? "Keychain Loop" : "Stem";
+}
+
+function getAttachmentFileSuffix(mode = getAttachmentMode()) {
+  return mode === "keychain_loop" ? "keychain-loop" : "stem";
+}
+
+function updateAttachmentExportLabel() {
+  downloadStemBtn.textContent = `Download ${getAttachmentFileSuffix()}.stl`;
+}
+
+function guessDownloadsDirPath() {
+  const platform = String(navigator.platform || "").toLowerCase();
+  const pagePath = decodeURIComponent(String(window.location?.pathname || ""));
+  if (platform.includes("win")) {
+    const winMatch = pagePath.match(/^\/([A-Za-z]:)\/Users\/([^/]+)/);
+    if (winMatch) return `${winMatch[1]}\\Users\\${winMatch[2]}\\Downloads`;
+    return "C:\\Users\\<your-user>\\Downloads";
+  }
+  if (platform.includes("mac")) {
+    const macMatch = pagePath.match(/^\/Users\/([^/]+)/);
+    if (macMatch) return `/Users/${macMatch[1]}/Downloads`;
+    return "/Users/<your-user>/Downloads";
+  }
+  return "/home/<your-user>/Downloads";
+}
+
+function normalizeUserPath(rawPath) {
+  return String(rawPath || "")
+    .trim()
+    .replace(/^['"]+|['"]+$/g, "")
+    .replace(/[\\/]+$/g, "");
+}
+
+function joinUserPath(dir, fileName) {
+  const cleanDir = normalizeUserPath(dir);
+  if (!cleanDir) return "";
+  const sep = cleanDir.includes("\\") && !cleanDir.includes("/") ? "\\" : "/";
+  return `${cleanDir}${sep}${fileName}`;
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function launchUri(uri) {
+  const link = document.createElement("a");
+  link.href = uri;
+  link.rel = "noreferrer";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+async function launchBambuStudioForPath(filePath) {
+  const cleanPath = normalizeUserPath(filePath);
+  if (!cleanPath) return false;
+  const fileUrl = pathToFileUrl(cleanPath);
+  if (!fileUrl) return false;
+  const encodedFileUrl = encodeURIComponent(fileUrl);
+  const uri = `bambustudio://open?file=${encodedFileUrl}`;
+
+  // Let the browser start writing the downloaded 3MF before sending path to Bambu Studio.
+  await sleepMs(800);
+  try {
+    launchUri(uri);
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
+function pathToFileUrl(filePath) {
+  const cleanPath = normalizeUserPath(filePath);
+  if (!cleanPath) return "";
+  const windowsMatch = cleanPath.match(/^([A-Za-z]):[\\/](.*)$/);
+  if (windowsMatch) {
+    const drive = windowsMatch[1].toUpperCase();
+    const rest = windowsMatch[2].replace(/\\/g, "/");
+    return `file:///${drive}:/${rest}`;
+  }
+  if (cleanPath.startsWith("/")) return `file://${cleanPath}`;
+  return "";
+}
+
+function buildUnique3mfName(baseName) {
+  const now = new Date();
+  const pad2 = (v) => String(v).padStart(2, "0");
+  const stamp =
+    `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-` +
+    `${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
+  return `${baseName}-${stamp}.3mf`;
 }
 
 function getStemHexFromSelection() {
@@ -946,6 +1053,44 @@ function findStemAttachPoint(mask, width, height) {
   return { x: Math.floor(cx), y: Math.floor(cy) };
 }
 
+function findTopAttachPoint(mask, width, height) {
+  const cx = Math.floor((width - 1) / 2);
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * width;
+    let hasPixel = false;
+    for (let x = 0; x < width; x++) {
+      if (mask[rowStart + x]) {
+        hasPixel = true;
+        break;
+      }
+    }
+    if (!hasPixel) continue;
+
+    let bestStart = -1;
+    let bestLen = 0;
+    let runStart = -1;
+    for (let x = 0; x <= width; x++) {
+      const filled = x < width ? mask[rowStart + x] === 1 : false;
+      if (filled && runStart < 0) runStart = x;
+      if (!filled && runStart >= 0) {
+        const runLen = x - runStart;
+        if (runLen > bestLen) {
+          bestLen = runLen;
+          bestStart = runStart;
+        }
+        runStart = -1;
+      }
+    }
+
+    if (bestLen > 0) {
+      const x = bestStart + Math.floor((bestLen - 1) / 2);
+      return { x, y };
+    }
+    return { x: cx, y };
+  }
+  return { x: cx, y: 0 };
+}
+
 function drawProcessed(reducedData, width, height) {
   const c = document.createElement("canvas");
   c.width = width;
@@ -1480,6 +1625,47 @@ function makeStem(baseThickness, stemHex) {
   return group;
 }
 
+function makeKeychainLoop(baseThickness, stemHex) {
+  const group = new THREE.Group();
+  // Build a printable loop with a short bridge that overlaps into the base edge.
+  const depth = clamp(baseThickness * 1.05, baseThickness, baseThickness + 0.5);
+  const outerRadius = clamp(baseThickness * 2.2, 3.2, 4.8);
+  const innerRadius = clamp(outerRadius * 0.48, 1.5, outerRadius - 1.2);
+  const bridgeWidth = clamp(outerRadius * 1.05, 2.8, 4.8);
+  const bridgeHeight = clamp(outerRadius * 0.78, 2.1, 3.9);
+  const embedIntoBase = clamp(baseThickness * 0.5, 0.6, 1.3);
+  const ringCenterY = bridgeHeight + outerRadius - clamp(outerRadius * 0.22, 0.5, 0.9);
+
+  const ringShape = new THREE.Shape();
+  ringShape.absarc(0, ringCenterY, outerRadius, 0, Math.PI * 2, false);
+  const ringHole = new THREE.Path();
+  ringHole.absarc(0, ringCenterY, innerRadius, 0, Math.PI * 2, true);
+  ringShape.holes.push(ringHole);
+  const ringGeo = new THREE.ExtrudeGeometry(ringShape, {
+    depth,
+    bevelEnabled: false,
+    curveSegments: 40,
+    steps: 1,
+  });
+  const bridgeGeo = new THREE.BoxGeometry(bridgeWidth, bridgeHeight + embedIntoBase, depth);
+  bridgeGeo.translate(0, (bridgeHeight - embedIntoBase) / 2, depth / 2);
+
+  const partGeos = [ringGeo.toNonIndexed(), bridgeGeo.toNonIndexed()];
+  ringGeo.dispose();
+  bridgeGeo.dispose();
+  const merged = mergeGeometries(partGeos, false);
+  partGeos.forEach((g) => g.dispose());
+  if (!merged) return group;
+
+  const loopMesh = new THREE.Mesh(
+    merged,
+    new THREE.MeshStandardMaterial({ color: new THREE.Color(stemHex), metalness: 0, roughness: 0.88 })
+  );
+  loopMesh.name = "stem_body";
+  group.add(loopMesh);
+  return group;
+}
+
 function generateModel() {
   if (!reduced || !reduced.palette.length) {
     setStatus("No processed image data available.", true);
@@ -1501,6 +1687,7 @@ function generateModel() {
   const targetMm = clamp(parseFloat(targetSizeMmInput.value) || 30, 12, 60);
   const stemHex = getStemHexFromSelection();
   const baseHex = getBaseHexFromInput();
+  const attachmentMode = getAttachmentMode();
   const geometryMode = geometryModeSelect.value || "contour";
   const baseShapeMode = baseShapeModeSelect.value || "contour";
   const baseShapePadding = getBaseShapePaddingPx();
@@ -1565,16 +1752,23 @@ function generateModel() {
   }
 
   if (includeBacking && attachMask) {
-    const attach = findStemAttachPoint(attachMask, width, height);
     const halfW = (width * pxSize) / 2;
     const halfH = (height * pxSize) / 2;
-    const stemX = (attach.x + 0.5) * pxSize - halfW;
-    const stemY = halfH - (attach.y + 0.5) * pxSize;
-
-    const stem = makeStem(baseThickness, stemHex);
-    stem.name = "stem";
-    stem.position.set(stemX, stemY, 0);
-    group.add(stem);
+    const attachment =
+      attachmentMode === "keychain_loop" ? makeKeychainLoop(baseThickness, stemHex) : makeStem(baseThickness, stemHex);
+    attachment.name = "stem";
+    if (attachmentMode === "keychain_loop") {
+      const attach = findTopAttachPoint(attachMask, width, height);
+      const x = (attach.x + 0.5) * pxSize - halfW;
+      const yTopEdge = halfH - attach.y * pxSize;
+      attachment.position.set(x, yTopEdge, 0);
+    } else {
+      const attach = findStemAttachPoint(attachMask, width, height);
+      const x = (attach.x + 0.5) * pxSize - halfW;
+      const y = halfH - (attach.y + 0.5) * pxSize;
+      attachment.position.set(x, y, 0);
+    }
+    group.add(attachment);
   }
 
   modelGroup = group;
@@ -1593,11 +1787,12 @@ function generateModel() {
 
   downloadCombinedBtn.disabled = false;
   download3mfBtn.disabled = false;
+  openInBambuBtn.disabled = false;
   downloadStemBtn.disabled = !includeBacking;
   renderLayerButtons();
   setStatus(
     `3D model generated. Approx size: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)} mm. ` +
-      `Mode: ${geometryMode === "vector_trace" ? "Vector Trace" : "Contour"}, base: ${baseShapeMode}. ` +
+      `Mode: ${geometryMode === "vector_trace" ? "Vector Trace" : "Contour"}, base: ${baseShapeMode}, attachment: ${getAttachmentDisplayName(attachmentMode)}. ` +
       `Combined exports are auto-oriented logo-face down.` +
       (tinyColorMerge.removedColors > 0
         ? ` Auto-merged ${tinyColorMerge.removedColors} tiny color layer${tinyColorMerge.removedColors === 1 ? "" : "s"}.`
@@ -1863,10 +2058,16 @@ function build3MFXml(root, options = {}) {
 }
 
 async function export3MF(root, filename, options = {}) {
+  const blob = await build3MFBlob(root, options);
+  if (!blob) return;
+  downloadBlob(filename, blob);
+}
+
+async function build3MFBlob(root, options = {}) {
   const modelXml = build3MFXml(root, options);
   if (!modelXml) {
     setStatus("Could not build 3MF model data.", true);
-    return;
+    return null;
   }
 
   const zip = new JSZip();
@@ -1887,14 +2088,12 @@ async function export3MF(root, filename, options = {}) {
   );
   zip.folder("3D").file("3dmodel.model", modelXml);
 
-  const blob = await zip.generateAsync({
+  return zip.generateAsync({
     type: "blob",
     compression: "DEFLATE",
     compressionOptions: { level: 6 },
     mimeType: "model/3mf",
   });
-
-  downloadBlob(filename, blob);
 }
 
 function renderLayerButtons() {
@@ -1934,6 +2133,7 @@ imageInput.addEventListener("change", async (e) => {
     generateBtn.disabled = true;
     downloadCombinedBtn.disabled = true;
     download3mfBtn.disabled = true;
+    openInBambuBtn.disabled = true;
     downloadStemBtn.disabled = true;
     applyPaletteBtn.disabled = true;
     stemPaletteIndexSelect.disabled = true;
@@ -1988,7 +2188,10 @@ detectBtn.addEventListener("click", () => {
     drawProcessed(reduced, state.width, state.height);
     renderPalette(currentPalette);
     generateBtn.disabled = false;
-    setStatus(`Detected ${needed.length} generalized shades, estimated ${target} print colors. Reduced image to ${target}.`);
+    setStatus(
+      `Detected ${needed.length} generalized shades, estimated ${target} print colors. ` +
+        describeReductionResult(target, currentPalette.length)
+    );
   }
 });
 
@@ -2004,7 +2207,7 @@ quantizeBtn.addEventListener("click", () => {
   drawProcessed(reduced, state.width, state.height);
   renderPalette(currentPalette);
   generateBtn.disabled = false;
-  setStatus(`Image reduced to ${target} colors. You can tweak palette colors and apply.`);
+  setStatus(describeReductionResult(target, currentPalette.length));
 });
 
 applyPaletteBtn.addEventListener("click", () => {
@@ -2036,6 +2239,10 @@ baseColorInput.addEventListener("input", () => {
 });
 geometryModeSelect.addEventListener("change", () => {
   if (modelGroup) setStatus("Geometry mode changed. Click Generate 3D Model to rebuild before exporting.");
+});
+attachmentModeSelect.addEventListener("change", () => {
+  updateAttachmentExportLabel();
+  if (modelGroup) setStatus("Attachment type changed. Click Generate 3D Model to rebuild before exporting.");
 });
 baseShapeModeSelect.addEventListener("change", () => {
   redrawProcessedPreview();
@@ -2072,13 +2279,13 @@ nozzleMmInput.addEventListener("input", () => {
 baseThicknessInput.addEventListener("input", updateUnitHints);
 colorThicknessInput.addEventListener("input", updateUnitHints);
 resolutionInput.addEventListener("input", updateResolutionGuidance);
-
 updateResolutionGuidance();
 updateUnitHints();
 cleanupMinSizeValueEl.textContent = `${cleanupMinSizeInput.value} px`;
 cleanupMinSizeInput.disabled = !cleanupIslandsInput.checked;
 baseShapePaddingValueEl.textContent = `${baseShapePaddingInput.value} px`;
 setAdvancedOptionsVisibility(showAdvancedOptionsInput.checked);
+updateAttachmentExportLabel();
 
 generateBtn.addEventListener("click", generateModel);
 
@@ -2094,7 +2301,9 @@ downloadCombinedBtn.addEventListener("click", () => {
   const base = getExportBaseName();
   exportSTL(mesh, `${base}.stl`);
   mesh.geometry.dispose();
-  setStatus("Combined STL exported. Note: STL has no color metadata. For AMS multi-color, import base/named color/stem STLs as parts.");
+  setStatus(
+    `Combined STL exported. Note: STL has no color metadata. For AMS multi-color, import base/named color/${getAttachmentFileSuffix()} STLs as parts.`
+  );
 });
 
 download3mfBtn.addEventListener("click", async () => {
@@ -2110,21 +2319,45 @@ download3mfBtn.addEventListener("click", async () => {
   }
 });
 
+openInBambuBtn.addEventListener("click", async () => {
+  if (!modelGroup) return;
+  try {
+    const exportRoot = buildExportRoot();
+    const base = getExportBaseName();
+    const fileName = buildUnique3mfName(base);
+    const blob = await build3MFBlob(exportRoot, { includeStem: true, faceDown: true });
+    if (!blob) return;
+    downloadBlob(fileName, blob);
+    const path = joinUserPath(guessDownloadsDirPath(), fileName);
+    const launched = await launchBambuStudioForPath(path);
+    if (launched) {
+      setStatus(`3MF exported as ${fileName} and sent to Bambu Studio.`);
+    } else {
+      setStatus(`3MF exported as ${fileName}, but launch to Bambu Studio failed.`, true);
+    }
+  } catch (error) {
+    console.error(error);
+    setStatus("Open in Bambu Studio failed.", true);
+  }
+});
+
 downloadStemBtn.addEventListener("click", () => {
   if (!modelGroup) return;
+  const attachmentName = getAttachmentDisplayName();
+  const attachmentFile = getAttachmentFileSuffix();
   const stem = modelGroup.getObjectByName("stem");
   if (!stem) {
-    setStatus("No stem found in current model. Regenerate model first.", true);
+    setStatus(`No ${attachmentName.toLowerCase()} found in current model. Regenerate model first.`, true);
     return;
   }
   const geo = buildCombinedGeometry(stem, { includeStem: true, faceDown: false });
   if (!geo) {
-    setStatus("Could not build stem geometry.", true);
+    setStatus(`Could not build ${attachmentName.toLowerCase()} geometry.`, true);
     return;
   }
   const outMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial());
   const base = getExportBaseName();
-  exportSTL(outMesh, `${base}-stem.stl`);
+  exportSTL(outMesh, `${base}-${attachmentFile}.stl`);
   outMesh.geometry.dispose();
-  setStatus("Stem STL exported.");
+  setStatus(`${attachmentName} STL exported.`);
 });

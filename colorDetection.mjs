@@ -206,7 +206,14 @@ function distSq(a, b) {
 
 export function buildMergedPaletteFromDetection(detection, targetColors = 4) {
   const target = Math.max(1, Math.min(12, Math.round(targetColors || 4)));
-  let pool = (detection.neededColors && detection.neededColors.length ? detection.neededColors : detection.colors).map((c) => ({
+  const needed = detection.neededColors && detection.neededColors.length ? detection.neededColors : [];
+  const colors = detection.colors && detection.colors.length ? detection.colors : [];
+  // When user asks for more colors than foreground-only detection found,
+  // fall back to full detected colors so explicit requests can include
+  // edge/background colors (common in logo marks with a dark field).
+  const useFullColors = target > needed.length && colors.length > needed.length;
+  const source = useFullColors ? colors : needed.length ? needed : colors;
+  let pool = source.map((c) => ({
     rgb: c.rgb.slice(),
     count: Math.max(1, c.count || 1),
   }));

@@ -8,13 +8,16 @@ A browser app that turns an uploaded image into a 3D printable Jibbitz model wit
 - Detect whether the image already has 4 or fewer colors.
 - If yes: use those colors directly.
 - If not: reduce to 2-4 colors and let you customize the palette.
-- Generate a 3D Jibbitz with:
+- Generate a 3D charm with:
   - base body
   - top color layers
-  - back stem + cap
+  - either:
+    - back Jibbitz stem + cap
+    - top keychain loop attachment
 - Export printable STL files:
   - combined STL
-  - per-layer STLs (`base`, each `color_n`, and `stem`) for multi-material workflows.
+  - per-layer STLs (`base`, each `color_n`, and `stem` or `keychain-loop`) for multi-material workflows.
+- Export color 3MF and optionally launch Bambu Studio with the exported file path using the `Open 3MF in Bambu Studio` button.
 
 ## Run
 
@@ -28,6 +31,13 @@ python3 -m http.server 8000
 Then open:
 
 - http://localhost:8000
+
+## Dependency policy
+
+- Runtime dependencies are vendored and version-pinned in this repo:
+  - `vendor/three` -> `three@0.161.0`
+  - `vendor/jszip/jszip.esm.min.js` -> `jszip@3.10.1`
+- GitHub Pages does not need third-party CDN script/font fetches at runtime.
 
 ## Suggested print workflow
 

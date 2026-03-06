@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,900&family=Space+Grotesk:wght@400;500;700&display=swap");
-
 :root {
   --bg: #fff9ef;
   --ink: #111111;
@@ -22,7 +20,7 @@
 body {
   margin: 0;
   color: var(--ink);
-  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
   background:
     radial-gradient(circle at 8% 14%, #ffd26f 0, #ffd26f 13%, transparent 13.2%),
     radial-gradient(circle at 94% 18%, #ff8fab 0, #ff8fab 10%, transparent 10.2%),
@@ -38,7 +36,7 @@ header {
 
 h1 {
   margin: 0;
-  font-family: "Fraunces", Georgia, serif;
+  font-family: "Bookman Old Style", "Palatino Linotype", Georgia, serif;
   font-size: clamp(2rem, 3.5vw, 2.6rem);
   line-height: 0.95;
   letter-spacing: -0.01em;
@@ -54,7 +52,7 @@ header p {
 
 h3 {
   margin: 0 0 10px;
-  font-family: "Fraunces", Georgia, serif;
+  font-family: "Bookman Old Style", "Palatino Linotype", Georgia, serif;
   font-size: 1.45rem;
   line-height: 1;
   letter-spacing: 0.01em;
@@ -199,6 +197,25 @@ button:active:enabled {
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+#openInBambuBtn {
+  background: #31b44b;
+  border-color: #163d1f;
+  color: #071b0b;
+}
+
+#openInBambuBtn:hover:enabled {
+  background: #3bcf58;
+}
+
+#openInBambuBtn:active:enabled {
+  background: #2aa142;
+}
+
+#openInBambuBtn:disabled {
+  background: #9bc8a4;
+  color: #1f4127;
 }
 
 .status {
