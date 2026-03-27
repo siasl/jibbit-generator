@@ -1,6 +1,6 @@
 # Jibbitz 3D Generator
 
-A browser app that turns an uploaded image into a 3D printable Jibbitz model with up to 4 color regions.
+A browser app that turns an uploaded image into a 3D printable Jibbitz model with up to 4 color regions. f
 
 ## What it does
 
