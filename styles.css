@@ -1,3 +1,35 @@
+@font-face {
+  font-family: "Karl";
+  src: url("./assets/fonts/Karl%20Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Karl";
+  src: url("./assets/fonts/Karl%20Medium.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Karl";
+  src: url("./assets/fonts/Karl%20Bold%20Typeface.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Karl Display";
+  src: url("./assets/fonts/Karl%20Ultra%20Black.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+}
+
 :root {
   --bg: #fff9ef;
   --ink: #111111;
@@ -11,6 +43,8 @@
   --accent-c: #31b44b;
   --accent-d: #ffcf2f;
   --status-bg: #fff5c2;
+  --font-ui: "Karl", "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+  --font-display: "Karl Display", "Karl", "Bookman Old Style", "Palatino Linotype", Georgia, serif;
 }
 
 * {
@@ -20,7 +54,7 @@
 body {
   margin: 0;
   color: var(--ink);
-  font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+  font-family: var(--font-ui);
   background:
     radial-gradient(circle at 8% 14%, #ffd26f 0, #ffd26f 13%, transparent 13.2%),
     radial-gradient(circle at 94% 18%, #ff8fab 0, #ff8fab 10%, transparent 10.2%),
@@ -36,7 +70,8 @@ header {
 
 h1 {
   margin: 0;
-  font-family: "Bookman Old Style", "Palatino Linotype", Georgia, serif;
+  font-family: var(--font-display);
+  font-weight: 900;
   font-size: clamp(2rem, 3.5vw, 2.6rem);
   line-height: 0.95;
   letter-spacing: -0.01em;
@@ -50,9 +85,26 @@ header p {
   max-width: 760px;
 }
 
+.byline {
+  font-size: 0.94rem;
+  color: #3a3a3a;
+}
+
+.byline a {
+  color: #264577;
+  font-weight: 700;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.14em;
+}
+
+.byline a:hover {
+  color: #163152;
+}
+
 h3 {
   margin: 0 0 10px;
-  font-family: "Bookman Old Style", "Palatino Linotype", Georgia, serif;
+  font-family: var(--font-display);
+  font-weight: 900;
   font-size: 1.45rem;
   line-height: 1;
   letter-spacing: 0.01em;
@@ -105,6 +157,7 @@ main {
 
 label {
   font-size: 0.78rem;
+  font-family: var(--font-ui);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 700;
