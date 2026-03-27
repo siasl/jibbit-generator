@@ -17,20 +17,22 @@ A browser app that turns an uploaded image into a 3D printable Jibbitz model wit
 - Export printable STL files:
   - combined STL
   - per-layer STLs (`base`, each `color_n`, and `stem` or `keychain-loop`) for multi-material workflows.
-- Export color 3MF and optionally launch Bambu Studio with the exported file path using the `Open 3MF in Bambu Studio` button.
+- Export color 3MF and, when running the included local server, save it to your Downloads folder and open it directly in Bambu Studio.
 
 ## Run
 
-Because the app uses JavaScript modules, serve it from a local web server:
+Because the app uses JavaScript modules, run it from the included local server:
 
 ```bash
 cd "/path/to/Jibbitz Generator"
-python3 -m http.server 8000
+node server.mjs
 ```
 
 Then open:
 
 - http://localhost:8000
+
+If you serve the app some other way, browser-only exports still work, but `Open 3MF in Bambu Studio` falls back to a normal download because the browser cannot reliably save the file to a known OS path and launch Bambu Studio with it.
 
 ## Dependency policy
 

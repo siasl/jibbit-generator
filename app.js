@@ -49,6 +49,7 @@ const baseThicknessInchesEl = document.getElementById("baseThicknessInches");
 const colorThicknessInchesEl = document.getElementById("colorThicknessInches");
 const targetSizeInchesEl = document.getElementById("targetSizeInches");
 const nozzleInchesEl = document.getElementById("nozzleInches");
+const BAMBU_BRIDGE_ENDPOINT = "/api/open-in-bambu";
 
 const originalCanvas = document.getElementById("originalCanvas");
 const processedCanvas = document.getElementById("processedCanvas");
@@ -274,6 +275,11 @@ function updateResolutionGuidance() {
     `Current ${current} is ${relationCurrent}.`;
 }
 
+function applyRecommendedResolution() {
+  const { recommended } = getResolutionRecommendation();
+  resolutionInput.value = String(recommended);
+}
+
 function updateUnitHints() {
   const baseMm = clamp(parseFloat(baseThicknessInput.value) || 1.8, 0.8, 6);
   const colorMm = clamp(parseFloat(colorThicknessInput.value) || 0.8, 0.2, 3);
@@ -310,79 +316,53 @@ function updateAttachmentExportLabel() {
   downloadStemBtn.textContent = `Download ${getAttachmentFileSuffix()}.stl`;
 }
 
-function guessDownloadsDirPath() {
-  const platform = String(navigator.platform || "").toLowerCase();
-  const pagePath = decodeURIComponent(String(window.location?.pathname || ""));
-  if (platform.includes("win")) {
-    const winMatch = pagePath.match(/^\/([A-Za-z]:)\/Users\/([^/]+)/);
-    if (winMatch) return `${winMatch[1]}\\Users\\${winMatch[2]}\\Downloads`;
-    return "C:\\Users\\<your-user>\\Downloads";
-  }
-  if (platform.includes("mac")) {
-    const macMatch = pagePath.match(/^\/Users\/([^/]+)/);
-    if (macMatch) return `/Users/${macMatch[1]}/Downloads`;
-    return "/Users/<your-user>/Downloads";
-  }
-  return "/home/<your-user>/Downloads";
+function isMissingBambuBridgeStatus(status) {
+  return status === 404 || status === 405 || status === 501;
 }
 
-function normalizeUserPath(rawPath) {
-  return String(rawPath || "")
-    .trim()
-    .replace(/^['"]+|['"]+$/g, "")
-    .replace(/[\\/]+$/g, "");
-}
-
-function joinUserPath(dir, fileName) {
-  const cleanDir = normalizeUserPath(dir);
-  if (!cleanDir) return "";
-  const sep = cleanDir.includes("\\") && !cleanDir.includes("/") ? "\\" : "/";
-  return `${cleanDir}${sep}${fileName}`;
-}
-
-function sleepMs(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function launchUri(uri) {
-  const link = document.createElement("a");
-  link.href = uri;
-  link.rel = "noreferrer";
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-}
-
-async function launchBambuStudioForPath(filePath) {
-  const cleanPath = normalizeUserPath(filePath);
-  if (!cleanPath) return false;
-  const fileUrl = pathToFileUrl(cleanPath);
-  if (!fileUrl) return false;
-  const encodedFileUrl = encodeURIComponent(fileUrl);
-  const uri = `bambustudio://open?file=${encodedFileUrl}`;
-
-  // Let the browser start writing the downloaded 3MF before sending path to Bambu Studio.
-  await sleepMs(800);
+async function parseJsonResponse(response) {
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("application/json")) return {};
   try {
-    launchUri(uri);
-    return true;
+    return await response.json();
   } catch (_err) {
-    return false;
+    return {};
   }
 }
 
-function pathToFileUrl(filePath) {
-  const cleanPath = normalizeUserPath(filePath);
-  if (!cleanPath) return "";
-  const windowsMatch = cleanPath.match(/^([A-Za-z]):[\\/](.*)$/);
-  if (windowsMatch) {
-    const drive = windowsMatch[1].toUpperCase();
-    const rest = windowsMatch[2].replace(/\\/g, "/");
-    return `file:///${drive}:/${rest}`;
+async function open3MFInBambuStudio(fileName, blob) {
+  try {
+    const response = await fetch(BAMBU_BRIDGE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": blob.type || "model/3mf",
+        "X-File-Name": encodeURIComponent(fileName),
+      },
+      body: blob,
+    });
+    const data = await parseJsonResponse(response);
+    if (response.ok) {
+      return {
+        ok: true,
+        path: String(data.path || fileName),
+      };
+    }
+    return {
+      ok: false,
+      bridgeAvailable: !isMissingBambuBridgeStatus(response.status),
+      saved: Boolean(data.saved || data.path),
+      path: String(data.path || ""),
+      error: String(data.error || `Server returned ${response.status}.`),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      bridgeAvailable: false,
+      saved: false,
+      path: "",
+      error: error?.message || "Could not reach the local Bambu Studio bridge.",
+    };
   }
-  if (cleanPath.startsWith("/")) return `file://${cleanPath}`;
-  return "";
 }
 
 function buildUnique3mfName(baseName) {
@@ -2273,6 +2253,7 @@ targetSizeMmInput.addEventListener("input", () => {
   updateUnitHints();
 });
 nozzleMmInput.addEventListener("input", () => {
+  applyRecommendedResolution();
   updateResolutionGuidance();
   updateUnitHints();
 });
@@ -2327,14 +2308,21 @@ openInBambuBtn.addEventListener("click", async () => {
     const fileName = buildUnique3mfName(base);
     const blob = await build3MFBlob(exportRoot, { includeStem: true, faceDown: true });
     if (!blob) return;
-    downloadBlob(fileName, blob);
-    const path = joinUserPath(guessDownloadsDirPath(), fileName);
-    const launched = await launchBambuStudioForPath(path);
-    if (launched) {
-      setStatus(`3MF exported as ${fileName} and sent to Bambu Studio.`);
-    } else {
-      setStatus(`3MF exported as ${fileName}, but launch to Bambu Studio failed.`, true);
+    const result = await open3MFInBambuStudio(fileName, blob);
+    if (result.ok) {
+      setStatus(`3MF saved as ${fileName} and opened in Bambu Studio.`);
+      return;
     }
+    if (result.saved) {
+      setStatus(`3MF saved as ${fileName}, but Bambu Studio did not open: ${result.error}`, true);
+      return;
+    }
+    await downloadBlob(fileName, blob);
+    if (!result.bridgeAvailable) {
+      setStatus(`3MF downloaded as ${fileName}. Auto-open requires running this app with \`node server.mjs\`.`, true);
+      return;
+    }
+    setStatus(`3MF downloaded as ${fileName}, but Bambu Studio did not open: ${result.error}`, true);
   } catch (error) {
     console.error(error);
     setStatus("Open in Bambu Studio failed.", true);
