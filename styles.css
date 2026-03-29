@@ -252,25 +252,6 @@ button:disabled {
   cursor: not-allowed;
 }
 
-#openInBambuBtn {
-  background: #31b44b;
-  border-color: #163d1f;
-  color: #071b0b;
-}
-
-#openInBambuBtn:hover:enabled {
-  background: #3bcf58;
-}
-
-#openInBambuBtn:active:enabled {
-  background: #2aa142;
-}
-
-#openInBambuBtn:disabled {
-  background: #9bc8a4;
-  color: #1f4127;
-}
-
 .status {
   padding: 10px 12px;
   border-radius: 14px;

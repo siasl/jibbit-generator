@@ -17,7 +17,6 @@ const generateBtn = document.getElementById("generateBtn");
 const applyPaletteBtn = document.getElementById("applyPaletteBtn");
 const downloadCombinedBtn = document.getElementById("downloadCombinedBtn");
 const download3mfBtn = document.getElementById("download3mfBtn");
-const openInBambuBtn = document.getElementById("openInBambuBtn");
 const downloadStemBtn = document.getElementById("downloadStemBtn");
 const exportFileNameInput = document.getElementById("exportFileName");
 const layerExports = document.getElementById("layerExports");
@@ -49,7 +48,6 @@ const baseThicknessInchesEl = document.getElementById("baseThicknessInches");
 const colorThicknessInchesEl = document.getElementById("colorThicknessInches");
 const targetSizeInchesEl = document.getElementById("targetSizeInches");
 const nozzleInchesEl = document.getElementById("nozzleInches");
-const BAMBU_BRIDGE_ENDPOINT = "/api/open-in-bambu";
 
 const originalCanvas = document.getElementById("originalCanvas");
 const processedCanvas = document.getElementById("processedCanvas");
@@ -314,64 +312,6 @@ function getAttachmentFileSuffix(mode = getAttachmentMode()) {
 
 function updateAttachmentExportLabel() {
   downloadStemBtn.textContent = `Download ${getAttachmentFileSuffix()}.stl`;
-}
-
-function isMissingBambuBridgeStatus(status) {
-  return status === 404 || status === 405 || status === 501;
-}
-
-async function parseJsonResponse(response) {
-  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
-  if (!contentType.includes("application/json")) return {};
-  try {
-    return await response.json();
-  } catch (_err) {
-    return {};
-  }
-}
-
-async function open3MFInBambuStudio(fileName, blob) {
-  try {
-    const response = await fetch(BAMBU_BRIDGE_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": blob.type || "model/3mf",
-        "X-File-Name": encodeURIComponent(fileName),
-      },
-      body: blob,
-    });
-    const data = await parseJsonResponse(response);
-    if (response.ok) {
-      return {
-        ok: true,
-        path: String(data.path || fileName),
-      };
-    }
-    return {
-      ok: false,
-      bridgeAvailable: !isMissingBambuBridgeStatus(response.status),
-      saved: Boolean(data.saved || data.path),
-      path: String(data.path || ""),
-      error: String(data.error || `Server returned ${response.status}.`),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      bridgeAvailable: false,
-      saved: false,
-      path: "",
-      error: error?.message || "Could not reach the local Bambu Studio bridge.",
-    };
-  }
-}
-
-function buildUnique3mfName(baseName) {
-  const now = new Date();
-  const pad2 = (v) => String(v).padStart(2, "0");
-  const stamp =
-    `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-` +
-    `${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
-  return `${baseName}-${stamp}.3mf`;
 }
 
 function getStemHexFromSelection() {
@@ -1767,7 +1707,6 @@ function generateModel() {
 
   downloadCombinedBtn.disabled = false;
   download3mfBtn.disabled = false;
-  openInBambuBtn.disabled = false;
   downloadStemBtn.disabled = !includeBacking;
   renderLayerButtons();
   setStatus(
@@ -2113,7 +2052,6 @@ imageInput.addEventListener("change", async (e) => {
     generateBtn.disabled = true;
     downloadCombinedBtn.disabled = true;
     download3mfBtn.disabled = true;
-    openInBambuBtn.disabled = true;
     downloadStemBtn.disabled = true;
     applyPaletteBtn.disabled = true;
     stemPaletteIndexSelect.disabled = true;
@@ -2297,35 +2235,6 @@ download3mfBtn.addEventListener("click", async () => {
   } catch (error) {
     console.error(error);
     setStatus("3MF export failed.", true);
-  }
-});
-
-openInBambuBtn.addEventListener("click", async () => {
-  if (!modelGroup) return;
-  try {
-    const exportRoot = buildExportRoot();
-    const base = getExportBaseName();
-    const fileName = buildUnique3mfName(base);
-    const blob = await build3MFBlob(exportRoot, { includeStem: true, faceDown: true });
-    if (!blob) return;
-    const result = await open3MFInBambuStudio(fileName, blob);
-    if (result.ok) {
-      setStatus(`3MF saved as ${fileName} and opened in Bambu Studio.`);
-      return;
-    }
-    if (result.saved) {
-      setStatus(`3MF saved as ${fileName}, but Bambu Studio did not open: ${result.error}`, true);
-      return;
-    }
-    await downloadBlob(fileName, blob);
-    if (!result.bridgeAvailable) {
-      setStatus(`3MF downloaded as ${fileName}. Auto-open requires running this app with \`node server.mjs\`.`, true);
-      return;
-    }
-    setStatus(`3MF downloaded as ${fileName}, but Bambu Studio did not open: ${result.error}`, true);
-  } catch (error) {
-    console.error(error);
-    setStatus("Open in Bambu Studio failed.", true);
   }
 });
 
